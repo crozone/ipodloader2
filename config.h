@@ -26,6 +26,8 @@ typedef struct {
   uint16 hicolor;
   uint16 beep_time; // in ms
   uint16 beep_period;
+  char *boot_tune;
+  int16 disable_boot_tune;
   int16 ata_standby_code;
 } config_t;
 

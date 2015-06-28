@@ -103,6 +103,19 @@ const char *kernnames[] = {
 	"(hd0,0)/linx",
 	0 };
 
+const char *tunenames[] = {
+	"(hd0,1)/boot.pzm",
+	"(hd0,1)/Notes/boot.pzm",
+	"(hd0,1)/boot/boot.pzm",
+	"(hd0,1)/boot_tune.pzm",
+	"(hd0,1)/Notes/boot_tune.pzm",
+	"(hd0,1)/boot/boot_tune.pzm",
+	"(hd0,2)/boot.pzm",
+	"(hd0,2)/boot/boot.pzm",
+	"(hd0,2)/boot_tune.pzm",
+	"(hd0,2)/boot/boot_tune.pzm",
+	0 };
+
 int is_applefw_img (char *firstblock);
 
 static config_image_t configimgs[MAX_MENU_ITEMS];
@@ -123,6 +136,8 @@ void config_init(void)
     config.hicolor   = fb_rgb(64,128,0);
     config.beep_time = 50;
     config.beep_period = 30;
+    config.disable_boot_tune = 0;
+	 config.boot_tune = (char *)find_somewhere (tunenames, "boot tune", NULL);
 
     {
         // preset default menu items
@@ -240,6 +255,10 @@ void config_init(void)
                 config.beep_time = mlc_atoi (value);
             } else if (!mlc_strcmp (p, "beep_period")) {
                 config.beep_period = mlc_atoi (value);
+            } else if (!mlc_strcmp (p, "disable_boot_tune")) {
+                config.disable_boot_tune = mlc_atoi (value);
+            } else if (!mlc_strcmp (p, "boot_tune")) {
+                config.boot_tune = value;
             } else if (!mlc_strcmp (p, "ata_standby_code")) {
                 config.ata_standby_code = mlc_atoi (value);
             } else {

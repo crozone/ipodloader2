@@ -144,6 +144,61 @@ static void test_piezo ()
   console_printcount = 0; // prevents userconfirm() from doing something
 }
 
+// We assume piezo maker format
+static void play_music (char *file)
+{
+  int f;
+  char *p, *pzm_file;
+  f = vfs_open (file);
+  if (f == -1) {
+    mlc_printf ("boot_tune file %s not found.\n", file);
+    return;
+  }
+  keypad_flush();
+
+  // Copy content to memory
+  int len;
+  pzm_file = mlc_malloc (4096);
+  mlc_memset (pzm_file, 0, 4096);
+  if ((len = vfs_read (pzm_file, 1, 4096, f)) == 4096) {
+    mlc_printf ("Boot music file is too long, reading only first 4k\n");
+    --len;
+  }
+  pzm_file[len] = 0;
+  
+  // change all CRs into LFs (for Windows and Mac users)
+  p = pzm_file;
+  while (*p) {
+    if (*p == '\r') *p = '\n';
+    ++p;
+  }
+  p = pzm_file;
+  
+#define next_line(pointer) \
+  ({ \
+    pointer = mlc_strchr (pointer, '\n'); \
+    pointer++; \
+  }) \
+  
+  // Ignore non-tone lines added by piezo maker
+  while (*p == '#') // Comments
+    next_line(p);
+  next_line(p); // Number of tones
+  
+  // Play tones
+  while (p && *p && !keypad_getkey()) {
+    while (*p == '#') // Comments
+      next_line(p);
+    int period, duration;
+    period = mlc_atoi(p);
+    next_line(p);
+    duration = mlc_atoi(p);
+    next_line(p);
+    ipod_beep(duration, period);
+  }
+  keypad_flush();
+}
+
 static void *iram_get_end_ptr (ipod_t *ipod, int offset) 
 {
     return (void *)(ipod->iram_base + ipod->iram_full_size - 0x100 + offset);
@@ -684,6 +739,9 @@ void *loader(void) {
   if (conf->debug & 64) { // test sound
     userconfirm ();
     test_piezo ();
+  }
+  if (conf->boot_tune && conf->disable_boot_tune == 0) {
+    play_music(conf->boot_tune);    
   }
 
   menu_init();
