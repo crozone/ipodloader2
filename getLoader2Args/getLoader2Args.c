@@ -46,6 +46,16 @@ static void memdump (long addr, int len) {
 }
 */
 
+static char* getAutoExec (char* args) {
+  char *cmd;
+  cmd = strstr(args, "autoexec=");
+  if (cmd == NULL) {
+    return NULL;
+  } else {
+    return cmd + 9;
+  }
+}
+
 int main (int argc, char **argv) 
 {
 /* look for non-empty spaces:
@@ -65,7 +75,7 @@ int main (int argc, char **argv)
 */
   char *args;
 
-  args = getArgs ((char*)0x80);
+  args = getAutoExec(getArgs ((char*)0x80));
   
   if (args) {
     puts (args);
