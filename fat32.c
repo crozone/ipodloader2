@@ -410,8 +410,19 @@ static int fat32_seek(void *fsdata,int fd,long offset,int whence) {
 
 void fat32_newfs(uint8 part,uint32 offset) {
 
-  // read the MBR (BPB) into memory
-  uint8* bpb = (uint8*)mlc_malloc(512);
+  /* Create a buffer for the BPB (BIOS Parameter Block),
+   * aka boot sector, reserve sector, 0th sector.
+   * The BPB is 512 bytes.
+   *
+   * Note:
+   * We will repurpose this buffer as the gFATSectorBuf
+   * after we are done with the BPB. Since the gFATSectorBuf
+   * has a worse case of being 4096 bytes long, we will allocate
+   * 4096 bytes even though the BPB itself only uses 512 bytes.
+   */
+  uint8* bpb = (uint8*)mlc_malloc(4096);
+
+  /* Read in the BPB */
   ata_readblocks (bpb, offset, 1);
 
   /* Verify that this is a FAT32 partition */
@@ -445,17 +456,17 @@ void fat32_newfs(uint8 part,uint32 offset) {
     return;
   }
   
-  
   fat.bytes_per_cluster = fat.bytes_per_sector * fat.sectors_per_cluster;
   fat.entries_per_sector = fat.bytes_per_sector / 32;
   fat.blks_per_sector = fat.bytes_per_sector / 512;
   fat.blks_per_cluster = fat.bytes_per_cluster / 512;
 
-  if (fat.bytes_per_sector == 512) {
-    gFATSectorBuf = bpb;
-  } else {
-    gFATSectorBuf = (uint8*)mlc_malloc(fat.bytes_per_sector);
-  }
+  /*
+   * Reuse the bpb buffer as the sector buffer.
+   * bpb was allocated as 4096 bytes to allow for the worse case
+   * 4096 sector size
+   */
+  gFATSectorBuf = bpb;
 
   if( clusterBuffer == NULL ) {
     clusterBuffer = (uint8*)mlc_malloc( fat.bytes_per_cluster );
