@@ -71,6 +71,13 @@ static uint32 *cacheaddr;
 static uint32 *cachetick;
 static uint32  cacheticks;
 
+/*
+ * drivetype only has two valid values:
+ *
+ * 0: Drive does 512b sector reads with COMMAND_READ_SECTORS_VRFY
+ * 1: Drive needs 2x 512b sector reads with COMMAND_READ_MULTIPLE when unable to read odd
+ *    sectors (5.5g iPod 80gb)
+ */
 static uint8 drivetype = 0;
 static uint8 readcommand = COMMAND_READ_SECTORS_VRFY;
 static uint8 sectorcount = 1;
@@ -336,19 +343,38 @@ void ata_identify(void) {
  * Sets up the transfer of one block of data
  */
 static int ata_readblock2(void *dst, uint32 sector, int storeInCache) {
-  uint8   status,i,cacheindex;
-  uint8 secteven = 1;
-  static uint16 *buff = 0;
+  uint8   status,i,cacheindex, secteven;
 
+  /*
+   * Static 1024 byte buffer.
+   * Only use if drivetype == 1, otherwise buff will be NULL
+   */
+  static uint16 *buff = NULL;
+
+  /*
+   * If drivetype == 1, we need to do 1024 byte reads and then do work on it
+   * before copying it to the dst buffer.
+   * Allocate buff to help us do that.
+   *
+   * If drivetype == 0, buff is never used, so it's safe to leave it as NULL.
+   */
   if ((!buff) && (drivetype == 1)) buff = (uint16*)mlc_malloc(1024);
 
-  if (drivetype == 1) {
+  if(drivetype == 0) {
+    /* The sector is always even for drivetype 0 */
+    secteven = 1;
+  }
+  else if (drivetype == 1) {
     if ((sector % 2) == 0) {
       secteven = 1;
     } else {
       secteven = 0;
       sector--;
     }
+  }
+  else {
+    mlc_printf("Invalid drivetype %u\n", drivetype);
+    mlc_show_fatal_error ();
   }
 
   /*
@@ -357,9 +383,10 @@ static int ata_readblock2(void *dst, uint32 sector, int storeInCache) {
   if (sector != 0) { /* Never EVER try to read sector 0 from cache, it won't be there or needed anyway */
     for(i=0;i<CACHE_NUMBLOCKS;i++) {
       if( cacheaddr[i] == sector ) {
-        if ((drivetype == 0) || (secteven == 1)) {
+        if (secteven) {
           mlc_memcpy(dst,cachedata + CACHE_BLOCKSIZE*i,512);  /* We did.. No need to bother the ATA controller */
-        } else { /* drivetype = 1 && secteven == 0 */
+        }
+        else {
           mlc_memcpy(dst,cachedata + CACHE_BLOCKSIZE*i+512,512);
         }
         cacheticks++;
@@ -401,26 +428,31 @@ static int ata_readblock2(void *dst, uint32 sector, int storeInCache) {
     if (storeInCache) {
       cacheaddr[cacheindex] = sector;
       ata_transfer_block(cachedata + cacheindex * CACHE_BLOCKSIZE);
-      if ((drivetype == 0) || (secteven == 1)) {
+      if (secteven) {
         mlc_memcpy(dst,cachedata + cacheindex*CACHE_BLOCKSIZE,512);
-      } else { /* drivetype == 1 && secteven == 0 */
-          mlc_memcpy(dst,cachedata + cacheindex*CACHE_BLOCKSIZE+512, 512);
+      }
+      else {
+        mlc_memcpy(dst,cachedata + cacheindex*CACHE_BLOCKSIZE+512, 512);
       }
       cacheticks++;
-    } else {
+    }
+    else {
       if (drivetype == 0) {
         ata_transfer_block(dst);
-      } else { /* drivetype == 1 */
+      }
+      else {
+        /* drivetype == 1 */
         ata_transfer_block(buff);
 
-        if (secteven == 1) {
+        if (secteven) {
           mlc_memcpy(dst,buff,512);
         } else {
           mlc_memcpy(dst,buff+256,512);
         }
       }
     }
-  } else {
+  }
+  else {
     mlc_printf("\nATA2 IO Error\n");
     status = pio_inbyte( REG_ERROR );
     mlc_printf("Error reg: %u\n",status);
