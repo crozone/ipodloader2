@@ -43,9 +43,13 @@ static fat_t fat;
 
 static uint8 *clusterBuffer = NULL;
 
-// this manages a simple block cache, mainly for the FAT (fat32_findnextcluster):
-static uint8 *gFATSectorBuf = 0;
+/*
+ * This caches a single FAT sector and is at least the length of the FAT sector size.
+ * It is initialized in fat32_newfs and used mainly in fat32_findnextcluster.
+ */
+static uint8 *gFATSectorBuf = NULL;
 static uint32 gSecNumInFATBuf = -1;
+
 static void readToSectorBuf (uint32 sector)
 {
   if (gSecNumInFATBuf != sector) {
