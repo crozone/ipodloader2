@@ -435,7 +435,41 @@ void fat32_newfs(uint8 part,uint32 offset) {
   mlc_memset (&fat, 0, sizeof(fat));
   fat.offset = offset;
   fat.bytes_per_sector           = getLE16(bpb+11);
+
+  /* Validate BPB_BytsPerSec is a legal value */
+  switch(fat.bytes_per_sector) {
+    case 512:
+    case 1024:
+    case 2048:
+    case 4096:
+      break;
+    default:
+      /* Invalid bytes per sector count. */
+      mlc_printf("Invalid FAT BPB_BytsPerSec\n");
+      mlc_show_critical_error();
+      return;
+  }
+
   fat.sectors_per_cluster        = bpb[0xD];
+
+  /* Validate BPB_SecPerClus is a legal value */
+  switch(fat.bytes_per_sector) {
+    case 1:
+    case 2:
+    case 4:
+    case 8:
+    case 16:
+    case 32:
+    case 64:
+    case 128:
+      break;
+    default:
+      /* Invalid bytes per sector count. */
+      mlc_printf("Invalid FAT BPB_SecPerClus\n");
+      mlc_show_critical_error();
+      return;
+  }
+
   fat.number_of_reserved_sectors = getLE16(bpb+14);
   fat.number_of_fats             = bpb[0x10];
   if (mlc_strncmp ("FAT16   ", (char*)&bpb[54], 8) == 0) {
