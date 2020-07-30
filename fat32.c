@@ -54,10 +54,18 @@ static void readToSectorBuf (uint32 sector)
   }
 }
 
+/*
+ * Get a 32 bit unsigned integer from the given array,
+ * treating them as little-endian.
+ */
 static uint32 getLE32 (uint8* p) {
   return p[0] | (p[1] << 8) | (p[2] << 16) | (p[3] << 24);
 }
 
+/*
+ * Get a 16 bit unsigned integer from the given array,
+ * treating them as little-endian.
+ */
 static uint16 getLE16 (uint8* p) {
   return p[0] | (p[1] << 8);
 }
@@ -473,14 +481,14 @@ void fat32_newfs(uint8 part,uint32 offset) {
   fat.number_of_reserved_sectors = getLE16(bpb+14);
   fat.number_of_fats             = bpb[0x10];
   if (mlc_strncmp ("FAT16   ", (char*)&bpb[54], 8) == 0) {
-    // FAT16 partition
+    /* FAT16 partition */
     fat.sectors_per_fat            = getLE16(bpb+22);
     fat.root_dir_first_cluster     = 2;
     fat.entries_in_rootdir         = getLE16(bpb+17);
     fat.data_area_offset           = (fat.entries_in_rootdir * 32 + fat.bytes_per_sector-1) / fat.bytes_per_sector; // root directory size
     fat.bits_per_fat_entry         = 16;
   } else if (mlc_strncmp ("FAT32   ", (char*)&bpb[82], 8) == 0) {
-    // FAT32 partition
+    /* FAT32 partition */
     fat.sectors_per_fat            = getLE32(bpb+0x24);
     fat.root_dir_first_cluster     = getLE32(bpb+0x2C);
     fat.bits_per_fat_entry         = 32;
