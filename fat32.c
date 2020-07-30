@@ -96,6 +96,10 @@ static uint32 fat32_findnextcluster(uint32 prev)
   readToSectorBuf (sector);
 
   if (fat.bits_per_fat_entry == 32) {
+    /*
+     * A FAT32 FAT entry is actually only a 28-bit entry.
+     * The high 4 bits of a FAT32 FAT entry are reserved.
+     */
     ret = getLE32 (gFATSectorBuf+offset) & 0x0FFFFFFF;
     if (ret < 2 || ret >= 0x0FFFFFF0) ret = 0;
   } else if (fat.bits_per_fat_entry == 16) {
