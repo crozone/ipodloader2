@@ -12,7 +12,7 @@ ifeq ($(GIT_SHELL_EXIT),0)
 # Check if working dir is clean.
 GIT_STATUS := $(shell git status --porcelain)
 ifndef GIT_STATUS
-GIT_COMMIT_HASH := $(shell git rev-parse HEAD)
+GIT_COMMIT_HASH := $(shell git rev-parse --short HEAD)
 endif
 endif
 
