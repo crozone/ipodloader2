@@ -343,7 +343,7 @@ void ata_identify(void) {
  * Sets up the transfer of one block of data
  */
 static int ata_readblock2(void *dst, uint32 sector, int storeInCache) {
-  uint8   status,i,cacheindex, secteven;
+  uint8   status, i, cacheindex, secteven;
 
   /*
    * Static 1024 byte buffer.
@@ -409,14 +409,14 @@ static int ata_readblock2(void *dst, uint32 sector, int storeInCache) {
     cachetick[cacheindex] = cacheticks;
   }
 
-  pio_outbyte( REG_DEVICEHEAD, (1<<6) | DEVICE_0 | ((sector & 0xF000000) >> 24) );
+  pio_outbyte( REG_DEVICEHEAD, (1<<6) | DEVICE_0 | ((sector & 0x0F000000) >> 24) );
   DELAY400NS;
   pio_outbyte( REG_FEATURES  , 0 );
   pio_outbyte( REG_CONTROL   , CONTROL_NIEN | 0x08); /* 8 = HD15 */
   pio_outbyte( REG_SECT_COUNT, sectorcount );
-  pio_outbyte( REG_SECT      ,  sector & 0xFF );
-  pio_outbyte( REG_CYL_LOW   , (sector & 0xFF00) >> 8 );
-  pio_outbyte( REG_CYL_HIGH  , (sector & 0xFF0000) >> 16 );
+  pio_outbyte( REG_SECT      ,  sector & 0x000000FF );
+  pio_outbyte( REG_CYL_LOW   , (sector & 0x0000FF00) >> 8 );
+  pio_outbyte( REG_CYL_HIGH  , (sector & 0x00FF0000) >> 16 );
 
   pio_outbyte( REG_COMMAND, readcommand );
   DELAY400NS;  DELAY400NS;
