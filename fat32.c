@@ -60,7 +60,7 @@ static void readToSectorBuf (uint32 sector)
 
 /*
  * Get a 32 bit unsigned integer from the given array,
- * treating them as little-endian.
+ * treating byte order as little-endian.
  */
 static uint32 getLE32 (uint8* p) {
   return p[0] | (p[1] << 8) | (p[2] << 16) | (p[3] << 24);
@@ -68,7 +68,7 @@ static uint32 getLE32 (uint8* p) {
 
 /*
  * Get a 16 bit unsigned integer from the given array,
- * treating them as little-endian.
+ * treating byte order as little-endian.
  */
 static uint16 getLE16 (uint8* p) {
   return p[0] | (p[1] << 8);
