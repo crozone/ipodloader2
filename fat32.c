@@ -84,14 +84,17 @@ static uint32 fat32_findnextcluster(uint32 prev)
 {
   uint32 sector, offset, ret = 0;
 
-  /* Calculate the FAT block number (aka byte offset) */
-  uint64 byteoffset = (fat.offset * 512)
-                    + (fat.number_of_reserved_sectors * fat.bytes_per_sector)
-                    + (prev * (fat.bits_per_fat_entry / 8));
+  /*
+   * Calculate the FAT block number.
+   * This is the byte index within the FAT table that the current cluster is located.
+   */
+  offset = (fat.offset * 512)
+            + (fat.number_of_reserved_sectors * fat.bytes_per_sector)
+            + (prev * (fat.bits_per_fat_entry / 8));
 
   /* Calculate the sector and the byte offset within that sector */
-  sector = byteoffset / fat.bytes_per_sector;
-  offset = byteoffset % fat.bytes_per_sector;
+  sector = offset / fat.bytes_per_sector;
+  offset = offset % fat.bytes_per_sector;
 
   readToSectorBuf (sector);
 
