@@ -375,6 +375,7 @@ static int ata_readblock2(void *dst, uint32 sector, int storeInCache) {
   else {
     mlc_printf("Invalid drivetype %u\n", drivetype);
     mlc_show_fatal_error ();
+    return(0);
   }
 
   /*
