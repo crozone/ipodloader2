@@ -432,6 +432,9 @@ static int fat32_seek(void *fsdata,int fd,long offset,int whence) {
 
 
 void fat32_newfs(uint8 part,uint32 offset) {
+  // Reset fat info structure
+  mlc_memset (&fat, 0, sizeof(fat));
+  fat.offset = offset;
 
   /* Create a buffer for the BPB (BIOS Parameter Block),
    * aka boot sector, reserve sector, 0th sector.
@@ -439,44 +442,43 @@ void fat32_newfs(uint8 part,uint32 offset) {
    *
    * Note:
    * We will repurpose this buffer as the gFATSectorBuf
-   * after we are done with the BPB. Since the gFATSectorBuf
-   * has a worse case of being 4096 bytes long, we will allocate
-   * 4096 bytes even though the BPB itself only uses 512 bytes.
+   * after we are done with the BPB. The gFATSectorBuf
+   * has a worse case of being 4096 bytes long, so we will allocate
+   * 4096 bytes even though the BPB itself only uses 512 bytes
+   * so this buffer can be repurposed as a sector buffer.
    */
   uint8* bpb = (uint8*)mlc_malloc(4096);
 
   /* Read in the BPB */
   ata_readblocks (bpb, offset, 1);
 
-  /* Verify that this is a FAT32 partition */
+  /* Verify that this is a FAT partition */
   if( getLE16(bpb+510) != 0xAA55 ) {
     mlc_printf("Not valid FAT superblock\n");
     mlc_show_critical_error();
     return;
   }
 
-  mlc_memset (&fat, 0, sizeof(fat));
-  fat.offset = offset;
-  fat.bytes_per_sector           = getLE16(bpb+11);
-
+  uint16 BPB_BytsPerSec = getLE16(bpb+11);
   /* Validate BPB_BytsPerSec is a legal value */
-  switch(fat.bytes_per_sector) {
+  switch(BPB_BytsPerSec) {
     case 512:
     case 1024:
     case 2048:
     case 4096:
-      break;
+    break;
     default:
       /* Invalid bytes per sector count. */
-      mlc_printf("Invalid FAT BPB_BytsPerSec\n");
+      mlc_printf("Invalid FAT BPB_BytsPerSec\nValue: %u\n", BPB_BytsPerSec);
       mlc_show_critical_error();
       return;
   }
 
-  fat.sectors_per_cluster        = bpb[0xD];
+  fat.bytes_per_sector = BPB_BytsPerSec;
 
+  uint8 BPB_SecPerClus = bpb[13];
   /* Validate BPB_SecPerClus is a legal value */
-  switch(fat.bytes_per_sector) {
+  switch(BPB_SecPerClus) {
     case 1:
     case 2:
     case 4:
@@ -488,40 +490,79 @@ void fat32_newfs(uint8 part,uint32 offset) {
       break;
     default:
       /* Invalid bytes per sector count. */
-      mlc_printf("Invalid FAT BPB_SecPerClus\n");
+      mlc_printf("Invalid FAT BPB_SecPerClus\nValue: %u\n", BPB_SecPerClus);
       mlc_show_critical_error();
       return;
   }
 
-  fat.number_of_reserved_sectors = getLE16(bpb+14);
-  fat.number_of_fats             = bpb[0x10];
-  if (mlc_strncmp ("FAT16   ", (char*)&bpb[54], 8) == 0) {
-    /* FAT16 partition */
-    fat.sectors_per_fat            = getLE16(bpb+22);
-    fat.root_dir_first_cluster     = 2;
-    fat.entries_in_rootdir         = getLE16(bpb+17);
-    fat.data_area_offset           = (fat.entries_in_rootdir * 32 + fat.bytes_per_sector-1) / fat.bytes_per_sector; // root directory size
-    fat.bits_per_fat_entry         = 16;
-  } else if (mlc_strncmp ("FAT32   ", (char*)&bpb[82], 8) == 0) {
-    /* FAT32 partition */
-    fat.sectors_per_fat            = getLE32(bpb+0x24);
-    fat.root_dir_first_cluster     = getLE32(bpb+0x2C);
-    fat.bits_per_fat_entry         = 32;
-  } else {
-    mlc_printf("Neither FAT16 nor FAT32\n");
+  fat.sectors_per_cluster = BPB_SecPerClus;
+
+  uint16 BPB_RootEntCnt = getLE16(bpb+17);
+  uint32 rootDirSectors = ((BPB_RootEntCnt * 32) + (BPB_BytsPerSec - 1)) / BPB_BytsPerSec; // root directory size
+
+  uint32 fatSz;
+  uint16 BPB_FATSz16 = getLE16(bpb+22);
+  if(BPB_FATSz16 != 0) {
+    fatSz = BPB_FATSz16;
+  }
+  else {
+    uint32 BPB_FATSz32 = getLE32(bpb+36);
+    fatSz = BPB_FATSz32;
+  }
+
+  uint32 totSec;
+  uint16 BPB_TotSec16 = getLE16(bpb+19);
+  if(BPB_TotSec16 != 0) {
+    totSec = BPB_TotSec16;
+  }
+  else {
+    uint32 BPB_TotSec32 = getLE32(bpb+32);
+    totSec = BPB_TotSec32;
+  }
+
+  uint16 BPB_ResvdSecCnt = getLE16(bpb+14);
+  uint16 BPB_NumFATs = bpb[16];
+  uint32 firstDataSector = BPB_ResvdSecCnt + (BPB_NumFATs * fatSz) + rootDirSectors;
+  uint32 dataSec = totSec - firstDataSector;
+  uint32 countofClusters = dataSec / BPB_SecPerClus;
+  
+  fat.data_area_offset           = rootDirSectors; // Or firstDataSector? Check code that uses this.
+  fat.entries_in_rootdir         = BPB_RootEntCnt;
+  fat.number_of_reserved_sectors = BPB_ResvdSecCnt;
+  fat.number_of_fats             = BPB_NumFATs;
+  fat.sectors_per_fat            = fatSz;
+  fat.bytes_per_cluster = BPB_BytsPerSec * BPB_SecPerClus;
+  fat.entries_per_sector = BPB_BytsPerSec / 32;
+  fat.blks_per_sector = BPB_BytsPerSec / 512;
+  fat.blks_per_cluster = fat.bytes_per_cluster / 512;
+
+  /* Determine FAT type */
+  if(countofClusters < 4085) {
+    /* Volume is FAT12 */
+    mlc_printf("FAT12 is not supported by this driver\n");
     mlc_show_critical_error();
     return;
   }
-  
-  fat.bytes_per_cluster = fat.bytes_per_sector * fat.sectors_per_cluster;
-  fat.entries_per_sector = fat.bytes_per_sector / 32;
-  fat.blks_per_sector = fat.bytes_per_sector / 512;
-  fat.blks_per_cluster = fat.bytes_per_cluster / 512;
+  else if(countofClusters < 65525) {
+    /* Volume is FAT16 */
+    fat.bits_per_fat_entry = 16;
+
+    /* Calculate the sector for the root directory */
+    uint16 firstRootDirSecNum = BPB_ResvdSecCnt + (BPB_NumFATs * BPB_FATSz16);
+    fat.root_dir_first_cluster = firstRootDirSecNum; // used to be harcoded to 2? Check.
+  }
+  else {
+    /* Volume is FAT32 */
+    fat.bits_per_fat_entry = 32;
+
+    /* Find the sector for the root directory in BPB_RootClus */
+    uint32 BPB_RootClus = getLE32(bpb+44);
+    fat.root_dir_first_cluster = BPB_RootClus;
+  }
 
   /*
+   * We are now done with the BPB.
    * Reuse the bpb buffer as the sector buffer.
-   * bpb was allocated as 4096 bytes to allow for the worse case
-   * 4096 sector size
    */
   gFATSectorBuf = bpb;
 
