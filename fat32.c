@@ -560,6 +560,7 @@ void fat32_newfs(uint8 part,uint32 offset) {
   /* Determine FAT type */
   if(countofClusters < 4085) {
     /* Volume is FAT12 */
+    mlc_printf("FAT12 detected. (countofClusters = %u)", countofClusters);
     mlc_printf("FAT12 is not supported by this driver\n");
     mlc_show_critical_error();
     return;
@@ -571,6 +572,8 @@ void fat32_newfs(uint8 part,uint32 offset) {
     /* Calculate the sector for the root directory */
     uint16 firstRootDirSecNum = BPB_ResvdSecCnt + (BPB_NumFATs * BPB_FATSz16);
     fat.root_dir_first_cluster = firstRootDirSecNum; // used to be harcoded to 2? Check.
+
+    mlc_printf("FAT16 detected. (countofClusters = %u)", countofClusters);
   }
   else {
     /* Volume is FAT32 */
@@ -579,6 +582,8 @@ void fat32_newfs(uint8 part,uint32 offset) {
     /* Find the sector for the root directory in BPB_RootClus */
     uint32 BPB_RootClus = getLE32(bpb+44);
     fat.root_dir_first_cluster = BPB_RootClus;
+
+    mlc_printf("FAT32 detected. (countofClusters = %u)", countofClusters);
   }
 
   /*
