@@ -94,6 +94,12 @@ static uint32 fat32_findnextcluster(uint32 prev_cluster)
   else if (fat.bits_per_fat_entry == 32) {
     fatOffset = prev_cluster * 4;
   }
+  else {
+    /* Unknown FAT type */
+    mlc_printf("Invalid bits_per_fat_entry\nValue: %u\n", fat.bits_per_fat_entry);
+    mlc_show_critical_error();
+    return 0;
+  }
 
   /* Calculate the sector that the FAT entry is located within */
   sector = (fat.offset / fat.blks_per_sector) + // offset sectors
