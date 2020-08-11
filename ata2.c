@@ -18,6 +18,9 @@
 #include "minilibc.h"
 #include "ata2.h"
 
+/*
+ * LBA28 registers
+ */
 #define REG_DATA       0x0
 #define REG_ERROR      0x1
 #define REG_FEATURES   0x1
@@ -31,18 +34,42 @@
 #define REG_CONTROL    0x8
 #define REG_ALTSTATUS  0x8
 
+/*
+ * LBA48 registers.
+ */
+
+// aka REG_SECT_COUNT. High byte is REG_SECCOUNT1
+#define REG_SECCOUNT0  0x2
+// aka REG_SECT. High byte is REG_LBA3
+#define REG_LBA0       0x3
+// aka REG_CYL_LOW. High byte is REG_LBA4
+#define REG_LBA1       0x4
+// aka REG_CYL_HIGH. High byte is REG_LBA5
+#define REG_LBA2       0x5
+#define REG_SECCOUNT1  0x0A
+#define REG_LBA3       0x0B
+#define REG_LBA4       0x0C
+#define REG_LBA5       0x0D
+
 #define REG_DA         0x9
 
 #define CONTROL_NIEN   0x2
 #define CONTROL_SRST   0x4
 
-  // all commands: see include/linux/hdreg.h
+// all commands: see include/linux/hdreg.h
 
-#define COMMAND_IDENTIFY_DEVICE 0xEC
-#define COMMAND_READ_MULTIPLE 0xC4
-#define COMMAND_READ_SECTORS  0x20
-#define COMMAND_READ_SECTORS_VRFY  0x21
-#define COMMAND_STANDBY        	0xE0
+// IDENTIFY DEVICE (Identify)
+#define COMMAND_IDENTIFY_DEVICE       0xEC
+// READ MULTIPLE (RdMul). LBA28.
+#define COMMAND_READ_MULTIPLE         0xC4
+// READ SECTOR(S) (RdSec) - 20h, PIO Data-In. LBA28.
+#define COMMAND_READ_SECTORS          0x20
+// READ SECTORS WITHOUT RETRY (RdSecN). LBA28
+#define COMMAND_READ_SECTORS_NORETRY  0x21
+// READ SECTOR(S) EXT (RdSecEx) - 24h, PIO Data-In. LBA48.
+#define COMMAND_READ_SECTORS_EXT      0x24
+// STANDBY IMMEDIATE (StandbyIm)
+#define COMMAND_STANDBY               0xE0
 
 #define DEVICE_0       0xA0
 #define DEVICE_1       0xB0
@@ -57,9 +84,9 @@
 #define STATUS_ERR     0x01
 
 unsigned int pio_base_addr1,pio_base_addr2;
-unsigned int pio_reg_addrs[10];
+unsigned int pio_reg_addrs[14];
 
-/* 
+/*
  * To keep memory usage at the same level, 8 blocks of 1024 instead of 16 of 512
  * Blocksize _NECESSARY_ for 1024b-sector-devices, unless uncached reads are used
  * Maybe this needs to be worked around in some way
@@ -71,8 +98,15 @@ static uint32 *cacheaddr;
 static uint32 *cachetick;
 static uint32  cacheticks;
 
+/*
+ * drivetype only has two valid values:
+ *
+ * 0: Drive does 512b sector reads with COMMAND_READ_SECTORS
+ * 1: Drive needs 2x 512b sector reads with COMMAND_READ_MULTIPLE when unable to read odd
+ *    sectors (5.5g iPod 80gb)
+ */
 static uint8 drivetype = 0;
-static uint8 readcommand = COMMAND_READ_SECTORS_VRFY;
+static uint8 readcommand = COMMAND_READ_SECTORS; //COMMAND_READ_SECTORS_NORETRY;
 static uint8 sectorcount = 1;
 
 static struct {
@@ -80,7 +114,11 @@ static struct {
   uint32 sectors;
 } ATAdev;
 
-void pio_outbyte(unsigned int addr,unsigned char data) {
+void pio_outbyte(unsigned int addr, unsigned char data) {
+  outb( data, pio_reg_addrs[ addr ] );
+}
+
+void pio_outword(unsigned int addr, unsigned int data) {
   outl( data, pio_reg_addrs[ addr ] );
 }
 
@@ -120,14 +158,23 @@ uint32 ata_init(void) {
    */
   pio_reg_addrs[ REG_DATA       ] = pio_base_addr1 + 0 * 4;
   pio_reg_addrs[ REG_FEATURES   ] = pio_base_addr1 + 1 * 4;
-  pio_reg_addrs[ REG_SECT_COUNT ] = pio_base_addr1 + 2 * 4;
-  pio_reg_addrs[ REG_SECT       ] = pio_base_addr1 + 3 * 4;
-  pio_reg_addrs[ REG_CYL_LOW    ] = pio_base_addr1 + 4 * 4;
-  pio_reg_addrs[ REG_CYL_HIGH   ] = pio_base_addr1 + 5 * 4;
+  pio_reg_addrs[ REG_SECT_COUNT ] = pio_base_addr1 + 2 * 4; // aka REG_SECCOUNT0
+  pio_reg_addrs[ REG_SECT       ] = pio_base_addr1 + 3 * 4; // aka REG_LBA0
+  pio_reg_addrs[ REG_CYL_LOW    ] = pio_base_addr1 + 4 * 4; // aka REG_LBA1
+  pio_reg_addrs[ REG_CYL_HIGH   ] = pio_base_addr1 + 5 * 4; // aka REG_LBA2
   pio_reg_addrs[ REG_DEVICEHEAD ] = pio_base_addr1 + 6 * 4;
   pio_reg_addrs[ REG_COMMAND    ] = pio_base_addr1 + 7 * 4;
   pio_reg_addrs[ REG_CONTROL    ] = pio_base_addr2 + 6 * 4;
   pio_reg_addrs[ REG_DA         ] = pio_base_addr2 + 7 * 4;
+
+  /*
+   * "Shortcuts" for LBA48.
+   * These are one byte above their LBA28 counterparts.
+   */
+  pio_reg_addrs[ REG_SECCOUNT1  ] = pio_reg_addrs[ REG_SECCOUNT0 ] + 1;
+  pio_reg_addrs[ REG_LBA3       ] = pio_reg_addrs[ REG_LBA0      ] + 1;
+  pio_reg_addrs[ REG_LBA4       ] = pio_reg_addrs[ REG_LBA1      ] + 1;
+  pio_reg_addrs[ REG_LBA5       ] = pio_reg_addrs[ REG_LBA2      ] + 1;
 
   /*
    * Black magic
@@ -259,7 +306,7 @@ void ata_find_transfermode(void) {
   pio_outbyte( REG_CYL_LOW   , (sector & 0xFF00) >> 8 );
   pio_outbyte( REG_CYL_HIGH  , (sector & 0xFF0000) >> 16 );
 
-  pio_outbyte( REG_COMMAND, COMMAND_READ_SECTORS_VRFY );
+  pio_outbyte( REG_COMMAND, COMMAND_READ_SECTORS );
   DELAY400NS;  DELAY400NS;
 
   while( pio_inbyte( REG_ALTSTATUS) & STATUS_BSY ); /* Spin until drive is not busy */
@@ -272,7 +319,7 @@ void ata_find_transfermode(void) {
     sectorcount = 2;
   } else {
     drivetype = 0;
-    readcommand = COMMAND_READ_SECTORS_VRFY;
+    readcommand = COMMAND_READ_SECTORS;
     sectorcount = 1;
   }
 
@@ -336,19 +383,39 @@ void ata_identify(void) {
  * Sets up the transfer of one block of data
  */
 static int ata_readblock2(void *dst, uint32 sector, int storeInCache) {
-  uint8   status,i,cacheindex;
-  uint8 secteven = 1;
-  static uint16 *buff = 0;
+  uint8   status, i, cacheindex, secteven;
 
-  if ((!buff) && (drivetype == 1)) buff = (uint16*)mlc_malloc(1024);
+  /*
+   * Static 1024 byte buffer.
+   * Only use if drivetype == 1, otherwise buff will be NULL
+   */
+  static uint16 *buff = NULL;
 
-  if (drivetype == 1) {
+  /*
+   * If drivetype == 1, we need to do 1024 byte reads and then do work on it
+   * before copying it to the dst buffer.
+   * Allocate buff to help us do that.
+   *
+   * If drivetype == 0, buff is never used, so it's safe to leave it as NULL.
+   */
+  if ((buff == NULL) && (drivetype == 1)) buff = (uint16*)mlc_malloc(1024);
+
+  if(drivetype == 0) {
+    /* The sector is always even for drivetype 0 */
+    secteven = 1;
+  }
+  else if (drivetype == 1) {
     if ((sector % 2) == 0) {
       secteven = 1;
     } else {
       secteven = 0;
       sector--;
     }
+  }
+  else {
+    mlc_printf("Invalid drivetype %u\n", drivetype);
+    mlc_show_fatal_error ();
+    return(0);
   }
 
   /*
@@ -357,9 +424,10 @@ static int ata_readblock2(void *dst, uint32 sector, int storeInCache) {
   if (sector != 0) { /* Never EVER try to read sector 0 from cache, it won't be there or needed anyway */
     for(i=0;i<CACHE_NUMBLOCKS;i++) {
       if( cacheaddr[i] == sector ) {
-        if ((drivetype == 0) || (secteven == 1)) {
+        if (secteven) {
           mlc_memcpy(dst,cachedata + CACHE_BLOCKSIZE*i,512);  /* We did.. No need to bother the ATA controller */
-        } else { /* drivetype = 1 && secteven == 0 */
+        }
+        else {
           mlc_memcpy(dst,cachedata + CACHE_BLOCKSIZE*i+512,512);
         }
         cacheticks++;
@@ -381,16 +449,62 @@ static int ata_readblock2(void *dst, uint32 sector, int storeInCache) {
     cachetick[cacheindex] = cacheticks;
   }
 
-  pio_outbyte( REG_DEVICEHEAD, (1<<6) | DEVICE_0 | ((sector & 0xF000000) >> 24) );
-  DELAY400NS;
-  pio_outbyte( REG_FEATURES  , 0 );
-  pio_outbyte( REG_CONTROL   , CONTROL_NIEN | 0x08); /* 8 = HD15 */
-  pio_outbyte( REG_SECT_COUNT, sectorcount );
-  pio_outbyte( REG_SECT      ,  sector & 0xFF );
-  pio_outbyte( REG_CYL_LOW   , (sector & 0xFF00) >> 8 );
-  pio_outbyte( REG_CYL_HIGH  , (sector & 0xFF0000) >> 16 );
+  /* TODO: Set this based on number of LBAs discovered on device */
+  uint8 useLBA48 = 1;
 
-  pio_outbyte( REG_COMMAND, readcommand );
+  if(!useLBA48 && (sector & 0xF0000000)) {
+    /* The sector is too large for the current addressing scheme */
+    mlc_printf("Sector %u is too large for LBA28 addressing.\n", sector);
+    mlc_show_fatal_error ();
+    return(0);
+  }
+
+  /*
+  * REG_DEVICEHEAD bits are:
+  *
+  * | 1 |  2  | 3 |  4  | 5678 |
+  * | 1 | LBA | 1 | DRV | HEAD |
+  *
+  * LBA = 0 for CHS addressing
+  * LBA = 1 for logical block addressing
+  *
+  * DRV = 0 for master
+  * DRV = 1 for slave
+  *
+  * Head = 0 for LBA 48
+  * Head = lower nibble of top byte of sector, for LBA28
+  */
+  uint8 head = useLBA48 ? 0 : ((sector & 0x0F000000) >> 24);
+  pio_outbyte( REG_DEVICEHEAD  , (1<<6) | DEVICE_0 | head );
+  DELAY400NS;
+  pio_outbyte( REG_FEATURES    , 0 );
+  pio_outbyte( REG_CONTROL     , CONTROL_NIEN | 0x08); /* 8 = HD15 */
+
+  if(!useLBA48) {
+    pio_outbyte( REG_SECT_COUNT, (sectorcount & 0x000000FF) >> 0  );
+
+    pio_outbyte( REG_SECT      , (sector      & 0x000000FF) >> 0  );
+    pio_outbyte( REG_CYL_LOW   , (sector      & 0x0000FF00) >> 8  );
+    pio_outbyte( REG_CYL_HIGH  , (sector      & 0x00FF0000) >> 16 );
+
+    pio_outbyte( REG_COMMAND, readcommand );
+  }
+  else {
+    pio_outbyte( REG_SECCOUNT1 , (sectorcount & 0x0000FF00) >> 8  );
+
+    pio_outbyte( REG_LBA3      , (sector      & 0xFF000000) >> 24 );
+    pio_outbyte( REG_LBA4      , 0 );
+    pio_outbyte( REG_LBA5      , 0 );
+
+    pio_outbyte( REG_SECCOUNT0 , (sectorcount & 0x000000FF) >> 0  );
+
+    pio_outbyte( REG_LBA0      , (sector      & 0x000000FF) >> 0  );
+    pio_outbyte( REG_LBA1      , (sector      & 0x0000FF00) >> 8  );
+    pio_outbyte( REG_LBA2      , (sector      & 0x00FF0000) >> 16 );
+
+    pio_outbyte( REG_COMMAND, COMMAND_READ_SECTORS_EXT );
+  }
+
   DELAY400NS;  DELAY400NS;
 
   while( pio_inbyte( REG_ALTSTATUS) & STATUS_BSY ); /* Spin until drive is not busy */
@@ -401,26 +515,31 @@ static int ata_readblock2(void *dst, uint32 sector, int storeInCache) {
     if (storeInCache) {
       cacheaddr[cacheindex] = sector;
       ata_transfer_block(cachedata + cacheindex * CACHE_BLOCKSIZE);
-      if ((drivetype == 0) || (secteven == 1)) {
+      if (secteven) {
         mlc_memcpy(dst,cachedata + cacheindex*CACHE_BLOCKSIZE,512);
-      } else { /* drivetype == 1 && secteven == 0 */
-          mlc_memcpy(dst,cachedata + cacheindex*CACHE_BLOCKSIZE+512, 512);
+      }
+      else {
+        mlc_memcpy(dst,cachedata + cacheindex*CACHE_BLOCKSIZE+512, 512);
       }
       cacheticks++;
-    } else {
+    }
+    else {
       if (drivetype == 0) {
         ata_transfer_block(dst);
-      } else { /* drivetype == 1 */
+      }
+      else {
+        /* drivetype == 1 */
         ata_transfer_block(buff);
 
-        if (secteven == 1) {
+        if (secteven) {
           mlc_memcpy(dst,buff,512);
         } else {
           mlc_memcpy(dst,buff+256,512);
         }
       }
     }
-  } else {
+  }
+  else {
     mlc_printf("\nATA2 IO Error\n");
     status = pio_inbyte( REG_ERROR );
     mlc_printf("Error reg: %u\n",status);
