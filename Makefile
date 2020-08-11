@@ -2,8 +2,27 @@
 #
 # Note by TT: the option "-mstructure-size-boundary=8" is necessary when compiling macpartitions.cc for the structs to get the correct sizes!
 
-# The next line gets the current svn revision.
-VERSION   = r$(shell sh -c "svnversion . | sed 's/[^0-9]//'")
+# Get the git hash, if the working directory is clean
+
+GIT_SHELL_EXIT := $(shell git status --porcelain 2> /dev/null >&2 ; echo $$?)
+
+# It can be non-zero when not in git repository or git is not installed.
+# It can happen when downloaded using github's "Download ZIP" option.
+ifeq ($(GIT_SHELL_EXIT),0)
+# Check if working dir is clean.
+GIT_STATUS := $(shell git status --porcelain)
+ifndef GIT_STATUS
+GIT_COMMIT_HASH := $(shell git rev-parse --short HEAD)
+endif
+endif
+
+ifdef GIT_COMMIT_HASH
+	VERSION   = $(GIT_COMMIT_HASH)
+else
+	VERSION   = 2.6
+endif
+
+$(info    VERSION is $(VERSION))
 
 CROSS    ?= arm-uclinux-elf-
 CC        = $(CROSS)gcc
