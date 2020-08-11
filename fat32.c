@@ -97,7 +97,7 @@ static uint32 fat32_findnextcluster(uint32 prev_cluster)
   else {
     /* Unknown FAT type */
     mlc_printf("Invalid bits_per_fat_entry\nValue: %u\n", fat.bits_per_fat_entry);
-    mlc_show_critical_error();
+    mlc_show_fatal_error();
     return 0;
   }
 
