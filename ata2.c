@@ -56,13 +56,20 @@
 #define CONTROL_NIEN   0x2
 #define CONTROL_SRST   0x4
 
-  // all commands: see include/linux/hdreg.h
+// all commands: see include/linux/hdreg.h
 
-#define COMMAND_IDENTIFY_DEVICE 0xEC
-#define COMMAND_READ_MULTIPLE 0xC4
-#define COMMAND_READ_SECTORS  0x20
-#define COMMAND_READ_SECTORS_VRFY  0x21
-#define COMMAND_STANDBY        	0xE0
+// IDENTIFY DEVICE (Identify)
+#define COMMAND_IDENTIFY_DEVICE       0xEC
+// READ MULTIPLE (RdMul). LBA28.
+#define COMMAND_READ_MULTIPLE         0xC4
+// READ SECTOR(S) (RdSec) - 20h, PIO Data-In. LBA28.
+#define COMMAND_READ_SECTORS          0x20
+// READ SECTORS WITHOUT RETRY (RdSecN). LBA28
+#define COMMAND_READ_SECTORS_NORETRY  0x21
+// READ SECTOR(S) EXT (RdSecEx) - 24h, PIO Data-In. LBA48.
+#define COMMAND_READ_SECTORS_EXT      0x24
+// STANDBY IMMEDIATE (StandbyIm)
+#define COMMAND_STANDBY               0xE0
 
 #define DEVICE_0       0xA0
 #define DEVICE_1       0xB0
@@ -94,12 +101,12 @@ static uint32  cacheticks;
 /*
  * drivetype only has two valid values:
  *
- * 0: Drive does 512b sector reads with COMMAND_READ_SECTORS_VRFY
+ * 0: Drive does 512b sector reads with COMMAND_READ_SECTORS
  * 1: Drive needs 2x 512b sector reads with COMMAND_READ_MULTIPLE when unable to read odd
  *    sectors (5.5g iPod 80gb)
  */
 static uint8 drivetype = 0;
-static uint8 readcommand = COMMAND_READ_SECTORS_VRFY;
+static uint8 readcommand = COMMAND_READ_SECTORS; //COMMAND_READ_SECTORS_NORETRY;
 static uint8 sectorcount = 1;
 
 static struct {
@@ -295,7 +302,7 @@ void ata_find_transfermode(void) {
   pio_outbyte( REG_CYL_LOW   , (sector & 0xFF00) >> 8 );
   pio_outbyte( REG_CYL_HIGH  , (sector & 0xFF0000) >> 16 );
 
-  pio_outbyte( REG_COMMAND, COMMAND_READ_SECTORS_VRFY );
+  pio_outbyte( REG_COMMAND, COMMAND_READ_SECTORS );
   DELAY400NS;  DELAY400NS;
 
   while( pio_inbyte( REG_ALTSTATUS) & STATUS_BSY ); /* Spin until drive is not busy */
@@ -308,7 +315,7 @@ void ata_find_transfermode(void) {
     sectorcount = 2;
   } else {
     drivetype = 0;
-    readcommand = COMMAND_READ_SECTORS_VRFY;
+    readcommand = COMMAND_READ_SECTORS;
     sectorcount = 1;
   }
 
@@ -475,6 +482,8 @@ static int ata_readblock2(void *dst, uint32 sector, int storeInCache) {
     pio_outbyte( REG_SECT      , (sector      & 0x000000FF) >> 0  );
     pio_outbyte( REG_CYL_LOW   , (sector      & 0x0000FF00) >> 8  );
     pio_outbyte( REG_CYL_HIGH  , (sector      & 0x00FF0000) >> 16 );
+
+    pio_outbyte( REG_COMMAND, readcommand );
   }
   else {
     pio_outbyte( REG_SECCOUNT0 , (sectorcount & 0x000000FF) >> 0  );
@@ -488,9 +497,10 @@ static int ata_readblock2(void *dst, uint32 sector, int storeInCache) {
     /* If you ever get a drive > 2TB, make sector 64 bits and add these */
     pio_outbyte( REG_LBA4      , 0 );
     pio_outbyte( REG_LBA5      , 0 );
+
+    pio_outbyte( REG_COMMAND, COMMAND_READ_SECTORS_EXT );
   }
 
-  pio_outbyte( REG_COMMAND, readcommand );
   DELAY400NS;  DELAY400NS;
 
   while( pio_inbyte( REG_ALTSTATUS) & STATUS_BSY ); /* Spin until drive is not busy */
