@@ -504,7 +504,7 @@ static int ata_readblock2(void *dst, uint32 sector, int storeInCache) {
 
     pio_outword( REG_SECCOUNT0 , ((sectorcount & 0x000000FF) >> 0) | ((sectorcount & 0x0000FF00) >> 8));
 
-    pio_outword( REG_LBA0      , ((sector & 0x000000FF) >> 0 ) | ((sector & 0xFF000000) >> 24) );
+    pio_outword( REG_LBA0      , ((sector & 0x000000FF) >> 0 ) | ((sector & 0xFF000000) >> (24 - 8)) );
     pio_outword( REG_LBA1      , ( sector & 0x0000FF00) >> 8 );
     pio_outword( REG_LBA2      , ( sector & 0x00FF0000) >> 16);
 
