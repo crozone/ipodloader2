@@ -37,10 +37,15 @@
 /*
  * LBA48 registers.
  */
-#define REG_SECCOUNT0  0x2 // aka REG_SECT_COUNT. High byte is REG_SECCOUNT1
-#define REG_LBA0       0x3 // aka REG_SECT. High byte is REG_LBA3
-#define REG_LBA1       0x4 // aka REG_CYL_LOW. High byte is REG_LBA4
-#define REG_LBA2       0x5 // aka REG_CYL_HIGH. High byte is REG_LBA5
+
+// aka REG_SECT_COUNT. High byte is REG_SECCOUNT1
+#define REG_SECCOUNT0  0x2
+// aka REG_SECT. High byte is REG_LBA3
+#define REG_LBA0       0x3
+// aka REG_CYL_LOW. High byte is REG_LBA4
+#define REG_LBA1       0x4
+// aka REG_CYL_HIGH. High byte is REG_LBA5
+#define REG_LBA2       0x5
 #define REG_SECCOUNT1  0x0A
 #define REG_LBA3       0x0B
 #define REG_LBA4       0x0C
