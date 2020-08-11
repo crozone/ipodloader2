@@ -18,6 +18,9 @@
 #include "minilibc.h"
 #include "ata2.h"
 
+/*
+ * LBA28 registers
+ */
 #define REG_DATA       0x0
 #define REG_ERROR      0x1
 #define REG_FEATURES   0x1
@@ -30,6 +33,18 @@
 #define REG_COMMAND    0x7
 #define REG_CONTROL    0x8
 #define REG_ALTSTATUS  0x8
+
+/*
+ * LBA48 registers.
+ */
+#define REG_SECCOUNT0  0x2 // aka REG_SECT_COUNT. High byte is REG_SECCOUNT1
+#define REG_LBA0       0x3 // aka REG_SECT. High byte is REG_LBA3
+#define REG_LBA1       0x4 // aka REG_CYL_LOW. High byte is REG_LBA4
+#define REG_LBA2       0x5 // aka REG_CYL_HIGH. High byte is REG_LBA5
+#define REG_SECCOUNT1  0x0A
+#define REG_LBA3       0x0B
+#define REG_LBA4       0x0C
+#define REG_LBA5       0x0D
 
 #define REG_DA         0x9
 
@@ -57,9 +72,9 @@
 #define STATUS_ERR     0x01
 
 unsigned int pio_base_addr1,pio_base_addr2;
-unsigned int pio_reg_addrs[10];
+unsigned int pio_reg_addrs[14];
 
-/* 
+/*
  * To keep memory usage at the same level, 8 blocks of 1024 instead of 16 of 512
  * Blocksize _NECESSARY_ for 1024b-sector-devices, unless uncached reads are used
  * Maybe this needs to be worked around in some way
@@ -87,7 +102,7 @@ static struct {
   uint32 sectors;
 } ATAdev;
 
-void pio_outbyte(unsigned int addr,unsigned char data) {
+void pio_outbyte(unsigned int addr, unsigned char data) {
   outl( data, pio_reg_addrs[ addr ] );
 }
 
@@ -127,14 +142,23 @@ uint32 ata_init(void) {
    */
   pio_reg_addrs[ REG_DATA       ] = pio_base_addr1 + 0 * 4;
   pio_reg_addrs[ REG_FEATURES   ] = pio_base_addr1 + 1 * 4;
-  pio_reg_addrs[ REG_SECT_COUNT ] = pio_base_addr1 + 2 * 4;
-  pio_reg_addrs[ REG_SECT       ] = pio_base_addr1 + 3 * 4;
-  pio_reg_addrs[ REG_CYL_LOW    ] = pio_base_addr1 + 4 * 4;
-  pio_reg_addrs[ REG_CYL_HIGH   ] = pio_base_addr1 + 5 * 4;
+  pio_reg_addrs[ REG_SECT_COUNT ] = pio_base_addr1 + 2 * 4; // aka REG_SECCOUNT0
+  pio_reg_addrs[ REG_SECT       ] = pio_base_addr1 + 3 * 4; // aka REG_LBA0
+  pio_reg_addrs[ REG_CYL_LOW    ] = pio_base_addr1 + 4 * 4; // aka REG_LBA1
+  pio_reg_addrs[ REG_CYL_HIGH   ] = pio_base_addr1 + 5 * 4; // aka REG_LBA2
   pio_reg_addrs[ REG_DEVICEHEAD ] = pio_base_addr1 + 6 * 4;
   pio_reg_addrs[ REG_COMMAND    ] = pio_base_addr1 + 7 * 4;
   pio_reg_addrs[ REG_CONTROL    ] = pio_base_addr2 + 6 * 4;
   pio_reg_addrs[ REG_DA         ] = pio_base_addr2 + 7 * 4;
+
+  /*
+   * "Shortcuts" for LBA48.
+   * These are one byte above their LBA28 counterparts.
+   */
+  pio_reg_addrs[ REG_SECCOUNT1  ] = pio_reg_addrs[ REG_SECCOUNT0 ] + 1;
+  pio_reg_addrs[ REG_LBA3       ] = pio_reg_addrs[ REG_LBA0      ] + 1;
+  pio_reg_addrs[ REG_LBA4       ] = pio_reg_addrs[ REG_LBA1      ] + 1;
+  pio_reg_addrs[ REG_LBA5       ] = pio_reg_addrs[ REG_LBA2      ] + 1;
 
   /*
    * Black magic
@@ -358,7 +382,7 @@ static int ata_readblock2(void *dst, uint32 sector, int storeInCache) {
    *
    * If drivetype == 0, buff is never used, so it's safe to leave it as NULL.
    */
-  if ((!buff) && (drivetype == 1)) buff = (uint16*)mlc_malloc(1024);
+  if ((buff == NULL) && (drivetype == 1)) buff = (uint16*)mlc_malloc(1024);
 
   if(drivetype == 0) {
     /* The sector is always even for drivetype 0 */
@@ -409,14 +433,57 @@ static int ata_readblock2(void *dst, uint32 sector, int storeInCache) {
     cachetick[cacheindex] = cacheticks;
   }
 
-  pio_outbyte( REG_DEVICEHEAD, (1<<6) | DEVICE_0 | ((sector & 0x0F000000) >> 24) );
+  /* TODO: Set this based on number of LBAs discovered on device */
+  uint8 useLBA48 = 1;
+
+  if(!useLBA48 && (sector & 0xF0000000)) {
+    /* The sector is too large for the current addressing scheme */
+    mlc_printf("Sector %u is too large for LBA28 addressing.\n", sector);
+    mlc_show_fatal_error ();
+    return(0);
+  }
+
+  /*
+  * REG_DEVICEHEAD bits are:
+  *
+  * | 1 |  2  | 3 |  4  | 5678 |
+  * | 1 | LBA | 1 | DRV | HEAD |
+  *
+  * LBA = 0 for CHS addressing
+  * LBA = 1 for logical block addressing
+  *
+  * DRV = 0 for master
+  * DRV = 1 for slave
+  *
+  * Head = 0 for LBA 48
+  * Head = lower nibble of top byte of sector, for LBA28
+  */
+  uint8 head = useLBA48 ? 0 : ((sector & 0x0F000000) >> 24);
+  pio_outbyte( REG_DEVICEHEAD  , (1<<6) | DEVICE_0 | head );
   DELAY400NS;
-  pio_outbyte( REG_FEATURES  , 0 );
-  pio_outbyte( REG_CONTROL   , CONTROL_NIEN | 0x08); /* 8 = HD15 */
-  pio_outbyte( REG_SECT_COUNT, sectorcount );
-  pio_outbyte( REG_SECT      ,  sector & 0x000000FF );
-  pio_outbyte( REG_CYL_LOW   , (sector & 0x0000FF00) >> 8 );
-  pio_outbyte( REG_CYL_HIGH  , (sector & 0x00FF0000) >> 16 );
+  pio_outbyte( REG_FEATURES    , 0 );
+  pio_outbyte( REG_CONTROL     , CONTROL_NIEN | 0x08); /* 8 = HD15 */
+
+  if(!useLBA48) {
+    pio_outbyte( REG_SECT_COUNT, (sectorcount & 0x000000FF) >> 0  );
+
+    pio_outbyte( REG_SECT      , (sector      & 0x000000FF) >> 0  );
+    pio_outbyte( REG_CYL_LOW   , (sector      & 0x0000FF00) >> 8  );
+    pio_outbyte( REG_CYL_HIGH  , (sector      & 0x00FF0000) >> 16 );
+  }
+  else {
+    pio_outbyte( REG_SECCOUNT0 , (sectorcount & 0x000000FF) >> 0  );
+    pio_outbyte( REG_SECCOUNT1 , (sectorcount & 0x0000FF00) >> 8 );
+
+    pio_outbyte( REG_LBA0      , (sector      & 0x000000FF) >> 0  );
+    pio_outbyte( REG_LBA1      , (sector      & 0x0000FF00) >> 8  );
+    pio_outbyte( REG_LBA2      , (sector      & 0x00FF0000) >> 16 );
+    pio_outbyte( REG_LBA3      , (sector      & 0xFF000000) >> 24 );
+    /* Sector is only 32 bits wide, so set highest bytes to zero. */
+    /* If you ever get a drive > 2TB, make sector 64 bits and add these */
+    pio_outbyte( REG_LBA4      , 0 );
+    pio_outbyte( REG_LBA5      , 0 );
+  }
 
   pio_outbyte( REG_COMMAND, readcommand );
   DELAY400NS;  DELAY400NS;
