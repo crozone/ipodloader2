@@ -118,6 +118,10 @@ void pio_outbyte(unsigned int addr, unsigned char data) {
   outl( data, pio_reg_addrs[ addr ] );
 }
 
+void pio_outword(unsigned int addr, unsigned int data) {
+  outl( data, pio_reg_addrs[ addr ] );
+}
+
 volatile unsigned char pio_inbyte( unsigned int addr ) {
   return( inl( pio_reg_addrs[ addr ] ) );
 }
@@ -486,17 +490,23 @@ static int ata_readblock2(void *dst, uint32 sector, int storeInCache) {
     pio_outbyte( REG_COMMAND, readcommand );
   }
   else {
+    /*
     pio_outbyte( REG_SECCOUNT0 , (sectorcount & 0x000000FF) >> 0  );
-    pio_outbyte( REG_SECCOUNT1 , (sectorcount & 0x0000FF00) >> 8 );
+    pio_outbyte( REG_SECCOUNT1 , (sectorcount & 0x0000FF00) >> 8  );
 
     pio_outbyte( REG_LBA0      , (sector      & 0x000000FF) >> 0  );
     pio_outbyte( REG_LBA1      , (sector      & 0x0000FF00) >> 8  );
     pio_outbyte( REG_LBA2      , (sector      & 0x00FF0000) >> 16 );
     pio_outbyte( REG_LBA3      , (sector      & 0xFF000000) >> 24 );
-    /* Sector is only 32 bits wide, so set highest bytes to zero. */
-    /* If you ever get a drive > 2TB, make sector 64 bits and add these */
     pio_outbyte( REG_LBA4      , 0 );
     pio_outbyte( REG_LBA5      , 0 );
+    */
+
+    pio_outword( REG_SECCOUNT0 , ((sectorcount & 0x000000FF) >> 0) | ((sectorcount & 0x0000FF00) >> 8));
+
+    pio_outword( REG_LBA0      , ((sector & 0x000000FF) >> 0 ) | ((sector & 0xFF000000) >> 24) );
+    pio_outword( REG_LBA1      , ( sector & 0x0000FF00) >> 8 );
+    pio_outword( REG_LBA2      , ( sector & 0x00FF0000) >> 16);
 
     pio_outbyte( REG_COMMAND, COMMAND_READ_SECTORS_EXT );
   }
