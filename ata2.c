@@ -71,8 +71,11 @@
 // STANDBY IMMEDIATE (StandbyIm)
 #define COMMAND_STANDBY               0xE0
 
-#define DEVICE_0       0xA0
-#define DEVICE_1       0xB0
+#define DEVICE_0       0x00
+#define DEVICE_1       0x10
+
+#define CHS_ADDRESSING 0x00
+#define LBA_ADDRESSING 0x40
 
 #define STATUS_BSY     0x80
 #define STATUS_DRDY    0x40
@@ -108,6 +111,8 @@ static uint32  cacheticks;
 static uint8 drivetype = 0;
 static uint8 readcommand = COMMAND_READ_SECTORS; //COMMAND_READ_SECTORS_NORETRY;
 static uint8 sectorcount = 1;
+
+static uint8 drive_supports_lba48 = 0;
 
 static struct {
   uint16 chs[3];
@@ -199,7 +204,7 @@ uint32 ata_init(void) {
    * We do this by writing values to two GP registers, and expect
    * to be able to read them back
    */
-  pio_outbyte( REG_DEVICEHEAD, DEVICE_0 ); /* Device 0 */
+  pio_outbyte( REG_DEVICEHEAD, 0xA0 | DEVICE_0 ); /* Device 0 */
   DELAY400NS;
   pio_outbyte( REG_SECT_COUNT, 0x55 );
   pio_outbyte( REG_SECT      , 0xAA );
@@ -297,14 +302,14 @@ void ata_find_transfermode(void) {
   uint32 sector = 1; /* We need to read an odd sector */
   uint8 status;
 
-  pio_outbyte( REG_DEVICEHEAD, (1<<6) | DEVICE_0 | ((sector & 0xF000000) >> 24) );
+  pio_outbyte( REG_DEVICEHEAD, 0xA0 | LBA_ADDRESSING | DEVICE_0 | ((sector & 0x0F000000) >> 24) );
   DELAY400NS;
   pio_outbyte( REG_FEATURES  , 0 );
   pio_outbyte( REG_CONTROL   , CONTROL_NIEN | 0x08); /* 8 = HD15 */
   pio_outbyte( REG_SECT_COUNT, 1 );
-  pio_outbyte( REG_SECT      ,  sector & 0xFF );
-  pio_outbyte( REG_CYL_LOW   , (sector & 0xFF00) >> 8 );
-  pio_outbyte( REG_CYL_HIGH  , (sector & 0xFF0000) >> 16 );
+  pio_outbyte( REG_SECT      , (sector & 0x000000FF) >> 0  );
+  pio_outbyte( REG_CYL_LOW   , (sector & 0x0000FF00) >> 8  );
+  pio_outbyte( REG_CYL_HIGH  , (sector & 0x00FF0000) >> 16 );
 
   pio_outbyte( REG_COMMAND, COMMAND_READ_SECTORS );
   DELAY400NS;  DELAY400NS;
@@ -336,7 +341,7 @@ void ata_identify(void) {
   uint8  status,c;
   uint16 *buff = (uint16*)mlc_malloc(512);
 
-  pio_outbyte( REG_DEVICEHEAD, DEVICE_0 );
+  pio_outbyte( REG_DEVICEHEAD, 0xA0 | DEVICE_0 );
   pio_outbyte( REG_FEATURES  , 0 );
   pio_outbyte( REG_CONTROL   , CONTROL_NIEN );
   pio_outbyte( REG_SECT_COUNT, 0 );
@@ -353,13 +358,68 @@ void ata_identify(void) {
   if( status & STATUS_DRQ ) {
     ata_transfer_block( buff );
 
+    /*
+     * Words 60..61 contain a value that is one greater than the maximum user addressable LBA.
+     * The maximum value that shall be placed in this field is 0FFF_FFFFh.
+     * If words 60..61 contain 0FFF_FFFFh and the device has user addressable LBAs greater than or equal to 0FFF_FFFFh,
+     * then the ACCESSIBLECAPACITY field (see 9.11.4.2) contains the total number of user addressable LBAs (see 4.1).
+     */
     ATAdev.sectors = (buff[61] << 16) + buff[60];
+
+    if(ATAdev.sectors == 0x0FFFFFFF) {
+        /* Enable LBA48 mode, since the drive has more than the max LBAs of LBA28 */
+         drive_supports_lba48 = 1;
+
+        /*
+         * TODO: Implement the log code described below.
+         *
+         * TODO: Maybe we should always try to read these logs (instead of just on large LBA drives)
+         * because they also tell us LOGICAL SECTOR SIZE. Doing this would let us skip the IDENTIFY DEVICE
+         * and only use it as a fallback.
+         */
+
+        /*
+         * To get the full details of the device, including the sector count, physical sector size,
+         * and other capabilities, we need to use the General Purpose Logging (GPL) feature set.
+         *
+         * Reference: http://www.t13.org/Documents/UploadedDocuments/docs2016/di529r14-ATAATAPI_Command_Set_-_4.pdf
+         *
+         * To read a log, use 7.22 READ LOG EXT - 2Fh, PIO Data-In
+         * This takes a LOG ADDRESS, PAGE NUMBER, and PAGE COUNT.
+         *
+         * 1. Read Page 00h of the 9.11 IDENTIFY DEVICE data log (Log Address 30h)
+         *
+         * 2. Check page 00h 9.11.2 List of Supported IDENTIFY DEVICE data log pages (Page 00h)
+         *    to see if Page 02h,  9.11.4 Capacity (page 02) is supported.
+         *
+         * 3. If supported, read 9.11.4 Capacity (page 02) page
+         *
+         * 4. Extract: ACCESSIBLE CAPACITY field (see 9.11.4.2)
+         *             LOGICAL SECTOR SIZE SUPPORTED bit, and if set,
+         *             LOGICAL SECTOR SIZE
+         *
+         * Note: I think LOGICAL SECTOR SIZE will remove the need to do the ata_find_transfermode,
+         *       since it tells us the physical sector alignment we need to adhere to.
+         *       We can also just assume the COMMAND_READ_SECTORS_EXT command and use a sector count > 1.
+         *       This will allow us to generalize the 5.5g 80GB read solution to work for all drives.
+         */
+    }
+
     ATAdev.chs[0]  = buff[1];
     ATAdev.chs[1]  = buff[3];
     ATAdev.chs[2]  = buff[6];
-    
+
     mlc_printf("ATA Device\n");
-    mlc_printf("Size: %uMB (%u/%u/%u)\n",ATAdev.sectors/2048,ATAdev.chs[0],ATAdev.chs[1],ATAdev.chs[2]);
+
+    if(drive_supports_lba48) {
+      /* Until we implement reading ACCESSIBLE CAPACITY, the best we can do is say this drive is >128GB */
+      mlc_printf("Size: >%uMB (%u/%u/%u)\n", ATAdev.sectors/2048, ATAdev.chs[0], ATAdev.chs[1], ATAdev.chs[2]);
+      mlc_printf("LBA48 addressing\n");
+    }
+    else {
+      mlc_printf("Size: %uMB (%u/%u/%u)\n", ATAdev.sectors/2048, ATAdev.chs[0], ATAdev.chs[1], ATAdev.chs[2]);
+      mlc_printf("LBA28 addressing\n");
+    }
 
     mlc_printf("HDDid: ");
     for(c=27;c<47;c++) {
@@ -368,7 +428,8 @@ void ata_identify(void) {
       }
     }
     mlc_printf("\n");
-  } else {
+  }
+  else {
     mlc_printf("DRQ not set..\n");
   }
 
@@ -449,17 +510,14 @@ static int ata_readblock2(void *dst, uint32 sector, int storeInCache) {
     cachetick[cacheindex] = cacheticks;
   }
 
-  /* TODO: Set this based on number of LBAs discovered on device */
-  uint8 useLBA48 = 1;
-
-  if(!useLBA48 && (sector & 0xF0000000)) {
+  if(!drive_supports_lba48 && (sector > 0x0FFFFFFF)) {
     /* The sector is too large for the current addressing scheme */
     mlc_printf("Sector %u is too large for LBA28 addressing.\n", sector);
     mlc_show_fatal_error ();
     return(0);
   }
 
-  /*
+ /*
   * REG_DEVICEHEAD bits are:
   *
   * | 1 |  2  | 3 |  4  | 5678 |
@@ -474,15 +532,14 @@ static int ata_readblock2(void *dst, uint32 sector, int storeInCache) {
   * Head = 0 for LBA 48
   * Head = lower nibble of top byte of sector, for LBA28
   */
-  uint8 head = useLBA48 ? 0 : ((sector & 0x0F000000) >> 24);
-  pio_outbyte( REG_DEVICEHEAD  , (1<<6) | DEVICE_0 | head );
+  uint8 head = drive_supports_lba48 ? 0 : ((sector & 0x0F000000) >> 24);
+  pio_outbyte( REG_DEVICEHEAD  , 0xA0 | LBA_ADDRESSING | DEVICE_0 | head );
   DELAY400NS;
   pio_outbyte( REG_FEATURES    , 0 );
   pio_outbyte( REG_CONTROL     , CONTROL_NIEN | 0x08); /* 8 = HD15 */
 
-  if(!useLBA48) {
+  if(!drive_supports_lba48) {
     pio_outbyte( REG_SECT_COUNT, (sectorcount & 0x000000FF) >> 0  );
-
     pio_outbyte( REG_SECT      , (sector      & 0x000000FF) >> 0  );
     pio_outbyte( REG_CYL_LOW   , (sector      & 0x0000FF00) >> 8  );
     pio_outbyte( REG_CYL_HIGH  , (sector      & 0x00FF0000) >> 16 );
@@ -490,14 +547,20 @@ static int ata_readblock2(void *dst, uint32 sector, int storeInCache) {
     pio_outbyte( REG_COMMAND, readcommand );
   }
   else {
-    pio_outbyte( REG_SECCOUNT1 , (sectorcount & 0x0000FF00) >> 8  );
+    /*
+     * Note the order that the upper bytes of the registers are written,
+     * it is not arbitrary.
+     * We need to write the high bytes first, before the low bytes.
+     */
 
+    /* Write the high bytes of the registers */
+    pio_outbyte( REG_SECCOUNT1 , (sectorcount & 0x0000FF00) >> 8  );
     pio_outbyte( REG_LBA3      , (sector      & 0xFF000000) >> 24 );
     pio_outbyte( REG_LBA4      , 0 );
     pio_outbyte( REG_LBA5      , 0 );
 
+    /* Write the low bytes of the registers */
     pio_outbyte( REG_SECCOUNT0 , (sectorcount & 0x000000FF) >> 0  );
-
     pio_outbyte( REG_LBA0      , (sector      & 0x000000FF) >> 0  );
     pio_outbyte( REG_LBA1      , (sector      & 0x0000FF00) >> 8  );
     pio_outbyte( REG_LBA2      , (sector      & 0x00FF0000) >> 16 );
@@ -506,8 +569,8 @@ static int ata_readblock2(void *dst, uint32 sector, int storeInCache) {
   }
 
   DELAY400NS;  DELAY400NS;
-
-  while( pio_inbyte( REG_ALTSTATUS) & STATUS_BSY ); /* Spin until drive is not busy */
+  /* Spin until drive is not busy */
+  while( pio_inbyte( REG_ALTSTATUS) & STATUS_BSY );
   DELAY400NS;  DELAY400NS;
 
   status = pio_inbyte( REG_STATUS );
