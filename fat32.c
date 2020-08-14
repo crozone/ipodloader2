@@ -18,6 +18,9 @@
 static filesystem myfs;
 
 typedef struct {
+  /*
+   * The 512 byte block count offset from the start of the drive to the start of the FAT partition
+   */
   uint32 offset;
 
   uint32 sectors_per_fat;
@@ -26,7 +29,9 @@ typedef struct {
   uint32 bytes_per_cluster;
 
   uint16 bytes_per_sector;
-  uint16 blks_per_sector;   // "blk" means 512 byte
+  /* The number of 512 byte blocks per sector */
+  uint16 blks_per_sector;
+  /* The number of 512 byte blocks per cluster */
   uint16 blks_per_cluster;
   uint16 number_of_reserved_sectors;
   uint16 sectors_per_cluster;
@@ -43,9 +48,13 @@ static fat_t fat;
 
 static uint8 *clusterBuffer = NULL;
 
-// this manages a simple block cache, mainly for the FAT (fat32_findnextcluster):
-static uint8 *gFATSectorBuf = 0;
+/*
+ * This caches a single FAT sector and is at least the length of the FAT sector size.
+ * It is initialized in fat32_newfs and used mainly in fat32_findnextcluster.
+ */
+static uint8 *gFATSectorBuf = NULL;
 static uint32 gSecNumInFATBuf = -1;
+
 static void readToSectorBuf (uint32 sector)
 {
   if (gSecNumInFATBuf != sector) {
@@ -54,37 +63,64 @@ static void readToSectorBuf (uint32 sector)
   }
 }
 
+/*
+ * Get a 32 bit unsigned integer from the given array,
+ * treating byte order as little-endian.
+ */
 static uint32 getLE32 (uint8* p) {
   return p[0] | (p[1] << 8) | (p[2] << 16) | (p[3] << 24);
 }
 
+/*
+ * Get a 16 bit unsigned integer from the given array,
+ * treating byte order as little-endian.
+ */
 static uint16 getLE16 (uint8* p) {
   return p[0] | (p[1] << 8);
 }
 
 /*
- * This routine sucks, and would benefit greatly from having
- * the FAT cached in RAM.. But.. The FAT for a 4GB Nano comes
- * out to about 4MB, so that wouldn't be very feasible for
- * larger capacity drives..
+ * Finds the next cluster in the FAT chain, given a current cluster index.
  */
-static uint32 fat32_findnextcluster(uint32 prev)
+static uint32 fat32_findnextcluster(uint32 prev_cluster)
 {
   uint32 sector, offset, ret = 0;
 
-  // this calculates the FAT block number
-  offset = (fat.offset*512 + fat.number_of_reserved_sectors*fat.bytes_per_sector) + prev * (fat.bits_per_fat_entry/8);
-  sector = offset / fat.bytes_per_sector;
-  offset = offset % fat.bytes_per_sector;
+  /* Calculate the byte offset for the FAT entry for prev_cluster */
+  uint32 fatOffset;
+  if (fat.bits_per_fat_entry == 16) {
+    fatOffset = prev_cluster * 2;
+  }
+  else if (fat.bits_per_fat_entry == 32) {
+    fatOffset = prev_cluster * 4;
+  }
+  else {
+    /* Unknown FAT type */
+    mlc_printf("Invalid bits_per_fat_entry\nValue: %u\n", fat.bits_per_fat_entry);
+    mlc_show_fatal_error();
+    return 0;
+  }
+
+  /* Calculate the sector that the FAT entry is located within */
+  sector = (fat.offset / fat.blks_per_sector) + // offset sectors
+           (fat.number_of_reserved_sectors + (fatOffset / fat.bytes_per_sector)); // sector within FAT
+
+  /* Calculate the byte offset within this sector for the entry */
+  offset = fatOffset % fat.bytes_per_sector;
 
   readToSectorBuf (sector);
 
-  if (fat.bits_per_fat_entry == 32) {
-    ret = getLE32 (gFATSectorBuf+offset) & 0x0FFFFFFF;
-    if (ret < 2 || ret >= 0x0FFFFFF0) ret = 0;
-  } else if (fat.bits_per_fat_entry == 16) {
+  if (fat.bits_per_fat_entry == 16) {
     ret = getLE16 (gFATSectorBuf+offset);
     if (ret < 2 || ret >= 0xFFF0) ret = 0;
+  }
+  else if (fat.bits_per_fat_entry == 32) {
+    /*
+     * A FAT32 FAT entry is actually only a 28-bit entry.
+     * The high 4 bits of a FAT32 FAT entry are reserved.
+     */
+    ret = getLE32 (gFATSectorBuf+offset) & 0x0FFFFFFF;
+    if (ret < 2 || ret >= 0x0FFFFFF0) ret = 0;
   }
 
   return ret;
@@ -93,9 +129,10 @@ static uint32 fat32_findnextcluster(uint32 prev)
 static uint32 calc_lba (uint32 start, int isRootDir)
 {
   uint32 lba;
-  lba  = fat.number_of_reserved_sectors + (fat.number_of_fats * fat.sectors_per_fat);
-  lba += (start - 2) * fat.sectors_per_cluster + (isRootDir?0:fat.data_area_offset);
-  lba = fat.offset + (lba * fat.blks_per_sector);
+  lba  = fat.offset +
+         (fat.number_of_reserved_sectors + (fat.number_of_fats * fat.sectors_per_fat) +
+         (start - 2) * fat.sectors_per_cluster + (isRootDir?0:fat.data_area_offset))
+         * fat.blks_per_sector;
   //mlc_printf("LBA %ld - %ld\n", start, lba);
   return lba;
 }
@@ -126,7 +163,8 @@ static void* getNextRawEntry (dir_state *state)
   uint16 idx = (state->entryIdx)++;
   if (idx % fat.entries_per_sector != 0) {
     return &state->buffer[(idx % fat.entries_per_sector) << 5];
-  } else {
+  }
+  else {
     // we're starting a new sector
     uint32 cluster_lba;
     uint16 sectorIdx = idx / fat.entries_per_sector; // there are 16 entries in a 512-byte sector
@@ -136,7 +174,8 @@ static void* getNextRawEntry (dir_state *state)
         // end of root dir
         return 0;
       }
-    } else {
+    }
+    else {
       sectorIdx = sectorIdx % fat.sectors_per_cluster;
       if (sectorIdx == 0 && idx > 0) {
         // next cluster
@@ -145,7 +184,8 @@ static void* getNextRawEntry (dir_state *state)
           // no more clusters -> end of dir
           return 0;
         }
-      } else {
+      }
+      else {
         // next sector in same cluster
       }
     }
@@ -202,14 +242,17 @@ static int getNextCompleteEntry (dir_state *dstate, char* *shortnameOut, char* *
           chksum = slot->alias_checksum;
           namegood = 1;
         }
-      } else {
+      }
+      else {
         namegood = 0;
       }
-    } else {
+    }
+    else {
       // A "normal" entry
       if ( entry[0] == 0xE5 ) {
         // deleted entry - continue with loop
-      } else {
+      }
+      else {
         *ftype = entry[0x0B];
         if (!namegood || chksum != lfn_checksum (&entry[0])) {
           // previously collected name does not belong to this entry
@@ -286,15 +329,14 @@ static int fat32_open(void *fsdata,char *fname) {
 
   file = fat32_findfile(fs->root_dir_first_cluster,1,fname);
 
-  if(file==NULL) {
-    //mlc_printf("%s not found\n", fname);
-    return(-1);
-  }
-
   if(file != NULL) {
     if( fs->numHandles < MAX_HANDLES ) {
       fs->filehandles[fs->numHandles++] = file;
     } else return(-1);
+  }
+  else {
+    //mlc_printf("%s not found\n", fname);
+    return(-1);
   }
 
   return(fs->numHandles-1);
@@ -409,53 +451,146 @@ static int fat32_seek(void *fsdata,int fd,long offset,int whence) {
 
 
 void fat32_newfs(uint8 part,uint32 offset) {
+  // Reset fat info structure
+  mlc_memset (&fat, 0, sizeof(fat));
+  fat.offset = offset;
 
-  // read the MBR (BPB) into memory
-  uint8* bpb = (uint8*)mlc_malloc(512);
+  /* Create a buffer for the BPB (BIOS Parameter Block),
+   * aka boot sector, reserve sector, 0th sector.
+   * The BPB is 512 bytes.
+   *
+   * Note:
+   * We will repurpose this buffer as the gFATSectorBuf
+   * after we are done with the BPB. The gFATSectorBuf
+   * has a worse case of being 4096 bytes long, so we will allocate
+   * 4096 bytes even though the BPB itself only uses 512 bytes
+   * so this buffer can be repurposed as a sector buffer.
+   */
+  uint8* bpb = (uint8*)mlc_malloc(4096);
+
+  /* Read in the BPB */
   ata_readblocks (bpb, offset, 1);
 
-  /* Verify that this is a FAT32 partition */
+  /* Verify that this is a FAT partition */
   if( getLE16(bpb+510) != 0xAA55 ) {
     mlc_printf("Not valid FAT superblock\n");
     mlc_show_critical_error();
     return;
   }
 
-  mlc_memset (&fat, 0, sizeof(fat));
-  fat.offset = offset;
-  fat.bytes_per_sector           = getLE16(bpb+11);
-  fat.sectors_per_cluster        = bpb[0xD];
-  fat.number_of_reserved_sectors = getLE16(bpb+14);
-  fat.number_of_fats             = bpb[0x10];
-  if (mlc_strncmp ("FAT16   ", (char*)&bpb[54], 8) == 0) {
-    // FAT16 partition
-    fat.sectors_per_fat            = getLE16(bpb+22);
-    fat.root_dir_first_cluster     = 2;
-    fat.entries_in_rootdir         = getLE16(bpb+17);
-    fat.data_area_offset           = (fat.entries_in_rootdir * 32 + fat.bytes_per_sector-1) / fat.bytes_per_sector; // root directory size
-    fat.bits_per_fat_entry         = 16;
-  } else if (mlc_strncmp ("FAT32   ", (char*)&bpb[82], 8) == 0) {
-    // FAT32 partition
-    fat.sectors_per_fat            = getLE32(bpb+0x24);
-    fat.root_dir_first_cluster     = getLE32(bpb+0x2C);
-    fat.bits_per_fat_entry         = 32;
-  } else {
-    mlc_printf("Neither FAT16 nor FAT32\n");
+  uint16 BPB_BytsPerSec = getLE16(bpb+11);
+  /* Validate BPB_BytsPerSec is a legal value */
+  switch(BPB_BytsPerSec) {
+    case 512:
+    case 1024:
+    case 2048:
+    case 4096:
+    break;
+    default:
+      /* Invalid bytes per sector count. */
+      mlc_printf("Invalid FAT BPB_BytsPerSec\nValue: %u\n", BPB_BytsPerSec);
+      mlc_show_critical_error();
+      return;
+  }
+
+  fat.bytes_per_sector = BPB_BytsPerSec;
+
+  uint8 BPB_SecPerClus = bpb[13];
+  /* Validate BPB_SecPerClus is a legal value */
+  switch(BPB_SecPerClus) {
+    case 1:
+    case 2:
+    case 4:
+    case 8:
+    case 16:
+    case 32:
+    case 64:
+    case 128:
+      break;
+    default:
+      /* Invalid bytes per sector count. */
+      mlc_printf("Invalid FAT BPB_SecPerClus\nValue: %u\n", BPB_SecPerClus);
+      mlc_show_critical_error();
+      return;
+  }
+
+  fat.sectors_per_cluster = BPB_SecPerClus;
+
+  uint16 BPB_RootEntCnt = getLE16(bpb+17);
+
+  // Calculate the root directory size. On FAT32, this is always 0.
+  uint32 rootDirSectors = ((BPB_RootEntCnt * 32) + (BPB_BytsPerSec - 1)) / BPB_BytsPerSec; // root directory size
+
+  uint32 fatSz;
+  uint16 BPB_FATSz16 = getLE16(bpb+22);
+  if(BPB_FATSz16 != 0) {
+    fatSz = BPB_FATSz16;
+  }
+  else {
+    uint32 BPB_FATSz32 = getLE32(bpb+36);
+    fatSz = BPB_FATSz32;
+  }
+
+  uint32 totSec;
+  uint16 BPB_TotSec16 = getLE16(bpb+19);
+  if(BPB_TotSec16 != 0) {
+    totSec = BPB_TotSec16;
+  }
+  else {
+    uint32 BPB_TotSec32 = getLE32(bpb+32);
+    totSec = BPB_TotSec32;
+  }
+
+  uint16 BPB_ResvdSecCnt = getLE16(bpb+14);
+  uint16 BPB_NumFATs = bpb[16];
+  uint32 firstDataSector = BPB_ResvdSecCnt + (BPB_NumFATs * fatSz) + rootDirSectors;
+  uint32 dataSec = totSec - firstDataSector;
+  uint32 countofClusters = dataSec / BPB_SecPerClus;
+  
+  fat.data_area_offset           = rootDirSectors;
+  fat.entries_in_rootdir         = BPB_RootEntCnt;
+  fat.number_of_reserved_sectors = BPB_ResvdSecCnt;
+  fat.number_of_fats             = BPB_NumFATs;
+  fat.sectors_per_fat            = fatSz;
+  fat.bytes_per_cluster          = BPB_BytsPerSec * BPB_SecPerClus;
+  fat.entries_per_sector         = BPB_BytsPerSec / 32;
+  fat.blks_per_sector            = BPB_BytsPerSec / 512;
+  fat.blks_per_cluster           = fat.bytes_per_cluster / 512;
+
+  /* Determine FAT type */
+  if(countofClusters < 4085) {
+    /* Volume is FAT12 */
+    mlc_printf("FAT12 detected.\nClusters = %u\n", countofClusters);
+    mlc_printf("FAT12 is not supported by this driver\n");
     mlc_show_critical_error();
     return;
   }
-  
-  
-  fat.bytes_per_cluster = fat.bytes_per_sector * fat.sectors_per_cluster;
-  fat.entries_per_sector = fat.bytes_per_sector / 32;
-  fat.blks_per_sector = fat.bytes_per_sector / 512;
-  fat.blks_per_cluster = fat.bytes_per_cluster / 512;
+  else if(countofClusters < 65525) {
+    /* Volume is FAT16 */
+    fat.bits_per_fat_entry = 16;
 
-  if (fat.bytes_per_sector == 512) {
-    gFATSectorBuf = bpb;
-  } else {
-    gFATSectorBuf = (uint8*)mlc_malloc(fat.bytes_per_sector);
+    /* Calculate the sector for the root directory */
+    uint16 firstRootDirSecNum = BPB_ResvdSecCnt + (BPB_NumFATs * BPB_FATSz16);
+    fat.root_dir_first_cluster = firstRootDirSecNum; // used to be harcoded to 2? Check.
+
+    mlc_printf("FAT16 detected.\nClusters = %u\n", countofClusters);
   }
+  else {
+    /* Volume is FAT32 */
+    fat.bits_per_fat_entry = 32;
+
+    /* Find the sector for the root directory in BPB_RootClus */
+    uint32 BPB_RootClus = getLE32(bpb+44);
+    fat.root_dir_first_cluster = BPB_RootClus;
+
+    mlc_printf("FAT32 detected.\nClusters = %u\n", countofClusters);
+  }
+
+  /*
+   * We are now done with the BPB.
+   * Reuse the bpb buffer as the sector buffer.
+   */
+  gFATSectorBuf = bpb;
 
   if( clusterBuffer == NULL ) {
     clusterBuffer = (uint8*)mlc_malloc( fat.bytes_per_cluster );
