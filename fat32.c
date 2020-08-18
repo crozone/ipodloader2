@@ -1,12 +1,3 @@
-/*
- * Notes:
- *
- *  Tempel 13Nov06
- *    It seems that certain valid file names can't be found by the open function. E.g, the name "apple_os.bin"
- *    can't be opened, but "apple-os.bin" can. This problem was already present in v2.4, it seems, so it was
- *    not introduced by the LFN changes in 2.5.
- */
-
 #include "bootloader.h"
 #include "ata2.h"
 #include "vfs.h"
@@ -201,12 +192,40 @@ static void trimr (char *s) {
   s[pos] = 0;
 }
 
-static void ucs2cpy (char *dest, uint8 *ucs2src, int chars) {
-  // this code simply ignores any non-ASCII unicode names, since the rest of loader2 doesn't support more of unicode either
+/*
+ * Copies a USC-2 string into an ASCII string destination buffer.
+ * If any of the UCS-2 characters fall outside of the ASCII character range,
+ * the character will be replaced with a '_' character, and the function will return
+ * the count of unsupported characters.
+ */
+static int ucs2cpy (char *dest, uint8 *ucs2src, int chars) {
+  int unknown_chars = 0;
   while (chars--) {
-    *dest++ = *ucs2src;
+    uint16 current_ucs2 = ucs2src[0] | (ucs2src[1] << 8);
+
+    if(current_ucs2 == 0x0000) {
+      /* NULL terminator */
+      *dest = '\0';
+    }
+    else if(current_ucs2 == 0xFFFF) {
+      /* Unused entry after the 0x0000 terminator character */
+      *dest = '\0';
+    }
+    else if ((current_ucs2 >= 0x0020) && (current_ucs2 <= 0x007E)) {
+      /* The character is in the valid ASCII range */
+      *dest = current_ucs2 & 0x00FF;
+    }
+    else {
+      /* Unmappable character */
+      *dest = '_';
+      unknown_chars++;
+    }
+
+    dest++;
     ucs2src += 2;
   }
+
+  return unknown_chars;
 }
 
 static int getNextCompleteEntry (dir_state *dstate, char* *shortnameOut, char* *longnameOut, uint32 *cluster, uint32 *flength, uint8 *ftype)
@@ -222,25 +241,83 @@ static int getNextCompleteEntry (dir_state *dstate, char* *shortnameOut, char* *
     uint8    name11_12[4];  /* last 2 characters in name */
   } long_dir_slot;
 
-  static char shortname[14], longname[132];
-  uint8 *entry, chksum = 0, namegood = 0;
+  /*
+   * Buffer for the 8.3 filename.
+   *
+   * 8 characters for the name
+   * 1 character for the '.'
+   * 3 characters for the extension
+   * 1 character for the null terminator
+   */
+  static char shortname[13];
+  /*
+   * Buffer for the LFN filename.
+   * At most this can be 255 characters.
+   * An extra character is added at the end to guarantee that a null terminator is always present.
+   */
+  static char longname[256];
+  uint8 *entry;
+  uint8 chksum = 0, namegood = 0;
 
   while ( (entry = getNextRawEntry (dstate)) != 0 ) {
     if (entry[0] == 0) {
       return 0; // end of dir
-    } else if ( entry[0x0B] == 0x0F ) {
-      // a long name entry
+    }
+    else if (entry[0] == 0xE5) {
+        // deleted entry - continue with loop
+    }
+    else if (entry[0x0B] == 0x0F) {
+      /*
+       * A Long File Name (LFN) entry.
+       * Attributes = Volume Label, System, Hidden, Read Only. (0x0F)
+       */
       long_dir_slot *slot = (long_dir_slot*)entry;
-      int n = 13 * (slot->seq & 0x3F); // sequence number specifies offset in long name
-      if (n >= 13 && n < (sizeof(longname)) && !(slot->seq & 0x80)) {
-        char *ln = longname + n - 13;
-        ucs2cpy (&ln[0], slot->name0_4, 5);
-        ucs2cpy (&ln[5], slot->name5_10, 6);
-        ucs2cpy (&ln[11], slot->name11_12, 2);
+
+      /*
+       * LFN Sequence Number (slot->seq)
+       *
+       * bit 6 (& 0x40):    last logical, first physical LFN entry
+       * bit 5 (& 0x20):    0
+       * bits 4-0 (& 0x1F): index number 0x01..0x14 (20 max)
+       *
+       * A deleted entry is still 0xE5.
+       */
+
+      /*
+       * Since each LFN entry always contains 13 characters of the LFN,
+       * we can use the index to calculate the offset of the current entry
+       * in the output file name string.
+       */
+      int offset = 13 * ((slot->seq & 0x1F) - 1);
+      if (offset >= 0 && offset < ((sizeof(longname) - 1) - 13) && !(slot->seq & 0x80)) {
         if (slot->seq & 0x40) {
-          ln[13] = 0;
+          /*
+           * 0x40 bit set indicates we have discovered the first physical
+           * and last logical LFN entry, which has the highest sequence number.
+           */
+          /* Zero out the existing LFN buffer */
+          mlc_memset (&longname, 0, sizeof(longname));
+          /* This entry contains the alias checksum. */
           chksum = slot->alias_checksum;
+          /* Set namegood = 1 to indicate we have a potentally valid LFN. */
           namegood = 1;
+        }
+
+        if(namegood) {
+          char *ln = longname + offset;
+          int invalid_chars =
+              ucs2cpy (&ln[0], slot->name0_4, 5)
+            + ucs2cpy (&ln[5], slot->name5_10, 6)
+            + ucs2cpy (&ln[11], slot->name11_12, 2);
+
+          if(invalid_chars > 0) {
+            /*
+            * The name might be valid UCS-2, but contains non-ASCII mappable characters that we cannot deal with.
+            * We are forced to treat the name as invalid and only use the short name.
+            */
+
+            namegood = 0;
+          }
         }
       }
       else {
@@ -248,41 +325,40 @@ static int getNextCompleteEntry (dir_state *dstate, char* *shortnameOut, char* *
       }
     }
     else {
-      // A "normal" entry
-      if ( entry[0] == 0xE5 ) {
-        // deleted entry - continue with loop
+      /*
+       * TODO: Make a struct for normal directory entries,
+       * there's no reason we should be using all of these magic offset values
+       */
+      *ftype = entry[0x0B];
+      if (!namegood || chksum != lfn_checksum (&entry[0])) {
+        // previously collected name does not belong to this entry
+        longname[0] = 0;
+        namegood = 0;
       }
-      else {
-        *ftype = entry[0x0B];
-        if (!namegood || chksum != lfn_checksum (&entry[0])) {
-          // previously collected name does not belong to this entry
-          longname[0] = 0;
-        }
-        uint32 cl = getLE16(entry+0x1A);
-        if (fat.bits_per_fat_entry == 32) {
-          cl |= getLE16(entry+0x14) << 16;
-        }
-        *cluster = cl;
-        *flength = getLE32(entry+0x1C);
-        if (*ftype & 8) {
-          // volume label - no "." in name
-          mlc_strlcpy (shortname, (char*)&entry[0], 12);
-        } else {
-          mlc_strlcpy (shortname, (char*)&entry[0], 9);
-          trimr (shortname);
-          char ext[4];
-          mlc_strlcpy (ext, (char*)&entry[8], 4);
-          trimr (ext);
-          if (ext[0]) {
-            mlc_strlcat (shortname, ".", 12);
-            mlc_strlcat (shortname, ext, 12);
-          }
-        }
+      uint32 cl = getLE16(entry+0x1A);
+      if (fat.bits_per_fat_entry == 32) {
+        cl |= getLE16(entry+0x14) << 16;
+      }
+      *cluster = cl;
+      *flength = getLE32(entry+0x1C);
+      if (*ftype & 8) {
+        // volume label - no "." in name
+        mlc_strlcpy (shortname, (char*)&entry[0], 11 + 1);
+      } else {
+        mlc_strlcpy (shortname, (char*)&entry[0], 8 + 1);
         trimr (shortname);
-        *shortnameOut = shortname;
-        *longnameOut = longname;
-        return 1;
+        char ext[4];
+        mlc_strlcpy (ext, (char*)&entry[8], sizeof(ext));
+        trimr (ext);
+        if (ext[0]) {
+          mlc_strlcat (shortname, ".", sizeof(shortname));
+          mlc_strlcat (shortname, ext, sizeof(shortname));
+        }
       }
+      trimr (shortname);
+      *shortnameOut = shortname;
+      *longnameOut = longname;
+      return 1;
     }
   }
   return 0; // end of dir
@@ -335,7 +411,7 @@ static int fat32_open(void *fsdata,char *fname) {
     } else return(-1);
   }
   else {
-    //mlc_printf("%s not found\n", fname);
+    mlc_printf("%s not found\n", fname);
     return(-1);
   }
 
@@ -348,6 +424,8 @@ static void fat32_close (void *fsdata, int fd)
   if (fd == fs->numHandles-1) {
     --fs->numHandles;
   }
+  /* If mlc_free existed, we would mlc_free(fs->filehandles[fd]) here */
+  /* For now, we just leak memory for every file opened. */
 }
 
 static size_t fat32_read(void *fsdata,void *ptr,size_t size,size_t nmemb,int fd) {

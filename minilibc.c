@@ -494,24 +494,34 @@ int mlc_strcasecmp(const char *s1,const char *s2) {
 	return( mlc_strncasecmp( s1,s2,max ) );
 }
 
-size_t mlc_strlcpy(char *dest,const char *src,size_t space)
+/*
+ * Copies a string from src to dest, and guarantees a null terminator at the end.
+ * The size argument indicates the allowed length of the dest buffer, and
+ * should include room for the null terminator.
+ */
+size_t mlc_strlcpy(char *dest,const char *src,size_t size)
 {
   size_t destlen = 0;
-  if (--space > 0) {
+  if (--size > 0) {
     do {
       if ((*dest++ = *src++) == 0) return destlen;
       destlen++;
-    } while (--space);
+    } while (--size);
     *dest++ = 0;
   }
   return destlen;
 }
 
-size_t mlc_strlcat(char *dest,const char *src,size_t count)
+/*
+ * Appends a string from src onto the end of dest, and guarantees a null terminator at the end.
+ * The size argument indicates the allowed length of the dest buffer, and
+ * should include room for the null terminator.
+ */
+size_t mlc_strlcat(char *dest,const char *src,size_t size)
 {
   size_t len = mlc_strlen(dest);
-  if (len >= count) return count;
-  return len + mlc_strlcpy (dest + len, src, count - len);
+  if (len >= size) return size;
+  return len + mlc_strlcpy (dest + len, src, size - len);
 }
 
 /* gcc emits code that calls memcpy() */
