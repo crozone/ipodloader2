@@ -3,10 +3,8 @@
 # Note by TT: the option "-mstructure-size-boundary=8" is necessary when compiling macpartitions.cc for the structs to get the correct sizes!
 
 # Get the git hash, if the working directory is clean
-
 GIT_SHELL_EXIT := $(shell git status --porcelain 2> /dev/null >&2 ; echo $$?)
-
-# It can be non-zero when not in git repository or git is not installed.
+# Return code can be non-zero when not in git repository or git is not installed.
 # It can happen when downloaded using github's "Download ZIP" option.
 ifeq ($(GIT_SHELL_EXIT),0)
 # Check if working dir is clean.
@@ -16,10 +14,11 @@ GIT_COMMIT_HASH := $(shell git rev-parse --short HEAD)
 endif
 endif
 
+# Suffix with "d" for development version, "b" for beta version
+VERSION   = 2.8
+
 ifdef GIT_COMMIT_HASH
-	VERSION   = $(GIT_COMMIT_HASH)
-else
-	VERSION   = 2.6
+	VERSION   := "$(VERSION) $(GIT_COMMIT_HASH)"
 endif
 
 $(info    VERSION is $(VERSION))

@@ -11,7 +11,7 @@
 #include "config.h"
 #include "interrupts.h"
 
-#define LOADERNAME "iPL Loader 2.6 " VERSION // "d" stands for development version, "b" for beta version
+#define LOADERNAME "iPL " VERSION // VERSION is set in the Makefile
 
 static uint16 *framebuffer;
 static int orig_contrast;
