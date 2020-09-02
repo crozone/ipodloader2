@@ -23,7 +23,7 @@ endif
 
 $(info    VERSION is $(VERSION))
 
-CROSS    ?= arm-uclinux-elf-
+CROSS    ?= arm-none-eabi-
 CC        = $(CROSS)gcc
 LD        = $(CROSS)ld
 MYCFLAGS  = -Os -Wall -std=gnu99 -ffreestanding -nostdinc -fomit-frame-pointer -DVERSION=\"$(VERSION)\"
