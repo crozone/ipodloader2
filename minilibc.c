@@ -729,3 +729,8 @@ void mlc_hexdump (void* addr, int len)
     mlc_printf("%02x\n", (int)*p++);
   }
 }
+
+void abort(void)
+{
+  for (;;) { }
+}
