@@ -305,7 +305,7 @@ static void key_i2c_interrupt(int irq, void *dev_id, struct pt_regs * regs)
     uint16 touch = (status >> 16) & 0x7f;
 
     if ((status & 0x800000ff) == 0x8000001a) {
-      int new_button_mask = 0;
+      unsigned int new_button_mask = 0;
 
       hdl_i2c_key (status & 0x0100, &new_button_mask, 0x01, ACTION_SC);
       hdl_i2c_key (status & 0x1000, &new_button_mask, 0x10, UP_SC);
