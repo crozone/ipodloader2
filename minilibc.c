@@ -625,7 +625,7 @@ long mlc_atoi (const char *str) {
   if (*str == '+') {
     str++;
   } else if (*str == '-') {
-    *str++;
+    str++;
     factor = -1;
   }
   while (*str >= '0' && *str <= '9') {
@@ -642,7 +642,7 @@ uint16 mlc_atorgb (const char *str, uint16 dft) {
   } else if (*str == '(') {
     // read 3 values
     int v, r = 0, g = 0, b = 0;
-    *str++;
+    str++;
     while (*str <= ' ') ++str; // skip whitespace
     while (*str >= '0' && *str <= '9') r = (r * 10) + *str++ - '0';
     if (*str == ',') ++str; // skip ,
@@ -728,4 +728,9 @@ void mlc_hexdump (void* addr, int len)
     mlc_printf("%02x", (int)*p++);
     mlc_printf("%02x\n", (int)*p++);
   }
+}
+
+void abort(void)
+{
+  for (;;) { }
 }

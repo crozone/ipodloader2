@@ -201,7 +201,7 @@ static int ipod_i2c_read_byte(unsigned int addr, unsigned int *data)
 
 static int i2c_readbyte(unsigned int dev_addr, int addr)
 {
-  int data;
+  unsigned int data;
   ipod_i2c_send_byte(dev_addr, addr);
   ipod_i2c_read_byte(dev_addr, &data);
   return data;
