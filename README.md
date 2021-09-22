@@ -141,8 +141,3 @@ Unless otherwise stated, all source code is licensed under
 GNU GPL - see License.txt. For the licensing of the
 software/application, refer to the license that comes
 with the original/ported software.
-
-All code/scripts written by Keripo are licensed under
-GNU GPL - see License.txt. For the licensing of the
-software/application, refer to the license that comes
-with the original/ported software.
