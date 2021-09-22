@@ -15,7 +15,7 @@ endif
 endif
 
 # Suffix with "d" for development version, "b" for beta version
-VERSION   = 2.8
+VERSION   = 2.8.1
 
 ifdef GIT_COMMIT_HASH
 	VERSION   := "$(VERSION) $(GIT_COMMIT_HASH)"
@@ -26,9 +26,9 @@ $(info    VERSION is $(VERSION))
 CROSS    ?= arm-none-eabi-
 CC        = $(CROSS)gcc
 LD        = $(CROSS)ld
-MYCFLAGS  = -Os -Wall -std=gnu99 -ffreestanding -nostdinc -fomit-frame-pointer -DVERSION=\"$(VERSION)\" -fno-exceptions
+MYCFLAGS  = -O1 -Wall -std=gnu99 -ffreestanding -nostdinc -fomit-frame-pointer -DVERSION=\"$(VERSION)\" -fno-exceptions
 # -DDEBUG
-MYCPPFLAGS= -Os -Wall -nostdinc -fomit-frame-pointer -mstructure-size-boundary=8 -fno-exceptions
+MYCPPFLAGS= -O1 -Wall -nostdinc -fomit-frame-pointer -mstructure-size-boundary=8 -fno-exceptions
 MYLDFLAGS = -Tarm_elf_40.x `$(CC) -print-libgcc-file-name`
 OBJCOPY   = $(CROSS)objcopy
 
