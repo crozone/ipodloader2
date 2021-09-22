@@ -11,6 +11,10 @@
  * 5.5G 80GB iPod - by Vincent Huisman ( dataghost at dataghost dot com ) 
  * at 2007-01-23
  *
+ * ATA2 code modified to support LBA48 for > 128GB drive support,
+ * misc fixes, and lots of comments.
+ * - By Ryan Crosby (crozone) at 2020-08-12
+ *
  */
 #include "bootloader.h"
 #include "console.h"
