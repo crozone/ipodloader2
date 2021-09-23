@@ -11,6 +11,10 @@
  * 5.5G 80GB iPod - by Vincent Huisman ( dataghost at dataghost dot com ) 
  * at 2007-01-23
  *
+ * ATA2 code modified to support LBA48 for > 128GB drive support,
+ * misc fixes, and lots of comments.
+ * - By Ryan Crosby (crozone) at 2020-08-12
+ *
  */
 #include "bootloader.h"
 #include "console.h"
@@ -253,7 +257,7 @@ void ata_exit(void)
  */
 void ata_standby (int cmd_variation)
 {
-  uint8  status, cmd = COMMAND_STANDBY;
+  uint8 cmd = COMMAND_STANDBY;
   // this is just a wild guess from "tempel" - I have no idea if this is the correct way to spin a disk down
   if (cmd_variation == 1) cmd = 0x94;
   if (cmd_variation == 2) cmd = 0x96;
@@ -262,7 +266,7 @@ void ata_standby (int cmd_variation)
   pio_outbyte( REG_COMMAND, cmd );
   DELAY400NS;
   while( pio_inbyte( REG_ALTSTATUS) & STATUS_BSY ); /* wait until drive is not busy */
-  status = pio_inbyte( REG_STATUS );
+  pio_inbyte( REG_STATUS );
 
   // The linux kernel notes mention that some drives might cause an interrupt when put to standby mode.
   // This interrupt is then to be ignored.

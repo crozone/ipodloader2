@@ -27,7 +27,7 @@ iPodLoader 2 can boot the following operating systems:
 
 ### Installation of toolchain (arm cross-compiler)
 
-Debian Linux x86_64 9 (Stretch) and 10 (Buster) are used as the reference distros, although the install commands will work on Ubuntu and are easily adapted for other distros.
+Debian Linux x86_64 11 (Bullseye) is used as the reference distro, although the install commands will work on Ubuntu and are easily adapted for other distros.
 
 #### Install `make`:
 
@@ -47,7 +47,7 @@ In the root directory of the repository, run
 
 `make`
 
-If the build went smoothly, an output file called `loader.bin` should have been left in the root.
+If the build went smoothly, an output file called `loader.bin` should have been output in the root.
 
 If you want to rebuild the solution, simply run `make clean` and then run `make` again.
 
@@ -68,7 +68,7 @@ Loader2 & iPodPatcher / SansaPatcher
   that are patched to load SansaLinux. The files currently
   used are from the original SansaLinux release. Much of
   the below information does not apply.
-For more information, see:
+  For more information, see:
 - http://ipodlinux.org/wiki/Loader2
 - http://www.rockbox.org/twiki/bin/view/Main/IpodPatcher
 - http://en.wikipedia.org/wiki/Bootloader
@@ -138,11 +138,6 @@ To do:
 ### License
 
 Unless otherwise stated, all source code is licensed under
-GNU GPL - see License.txt. For the licensing of the
-software/application, refer to the license that comes
-with the original/ported software.
-
-All code/scripts written by Keripo are licensed under
 GNU GPL - see License.txt. For the licensing of the
 software/application, refer to the license that comes
 with the original/ported software.

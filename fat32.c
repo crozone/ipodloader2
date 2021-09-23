@@ -1,3 +1,12 @@
+ /*
+ * FAT32 code modified by Ryan Crosby (crozone) at 2020-08-15
+ * - Rewrote Long File Name (LFN) implementation to fix several issues
+ * - Actually try to handle UCS-2 characters
+ * - Rewrote 8.3 implementation to fix off by 1 error
+ * - Rewrote FAT type detection
+ * - Lots of comments
+ */
+
 #include "bootloader.h"
 #include "ata2.h"
 #include "vfs.h"
