@@ -1,6 +1,10 @@
 # makefile for iPodLoader2
 #
 # Note by TT: the option "-mstructure-size-boundary=8" is necessary when compiling macpartitions.cc for the structs to get the correct sizes!
+# Note by crozone: the option "-mstructure-size-boundary=8" was obsoleted in GCC 8 and has been removed,
+#                  since it has long been the default after AAPCS was adopted (APCS used to specify 32 as the default).
+#                  See: https://gcc.gnu.org/gcc-8/changes.html
+#                       https://gcc.gnu.org/legacy-ml/gcc-patches/2017-07/msg00315.html
 
 # Get the git hash, if the working directory is clean
 GIT_SHELL_EXIT := $(shell git status --porcelain 2> /dev/null >&2 ; echo $$?)
@@ -28,7 +32,7 @@ CC        = $(CROSS)gcc
 LD        = $(CROSS)ld
 MYCFLAGS  = -O1 -Wall -std=gnu99 -ffreestanding -nostdinc -fomit-frame-pointer -DVERSION=\"$(VERSION)\" -fno-exceptions
 # -DDEBUG
-MYCPPFLAGS= -O1 -Wall -nostdinc -fomit-frame-pointer -mstructure-size-boundary=8 -fno-exceptions
+MYCPPFLAGS= -O1 -Wall -nostdinc -fomit-frame-pointer -fno-exceptions
 MYLDFLAGS = -Tarm_elf_40.x `$(CC) -print-libgcc-file-name`
 OBJCOPY   = $(CROSS)objcopy
 
