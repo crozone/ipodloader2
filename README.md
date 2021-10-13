@@ -88,52 +88,12 @@ Loader2 & iPodPatcher / SansaPatcher
 
 ## Attribution
 
-
-Loader 2:
 - Authors: iPL Core Devs
-- Source: SVN
-- Link:
+- Original SVN source link:
   https://ipodlinux.svn.sourceforge.net/svnroot/ipodlinux/apps/ipod/ipodloader2
 - Date: Oct 31, 2008
 - Version: Revision 2445
 - See commit authors for modifications performed since the SVN revision was imported.
-
-ZS Version:
-- Modder: Keripo
-- Type: Mod and Recompile
-- Date: Nov 11, 2008
-- Version: B X.X
-
-iPodPatcher:
-- Authors: Rockbox Devs
-- Source: SVN
-- Link:
-  svn://svn.rockbox.org/rockbox/trunk/rbutil/ipodpatcher
-- Date: Oct 10, 2008
-- Version: Revision 18763
-
-SansaPatcher:
-- Authors: Rockbox Devs, Sebastian Duell
-- Source: SansaLinux website
-- Link:
-  http://www.sansalinux.org/index.php?option=com_content&id=46
-- Date: Mar 28, 2008
-- Version: ???
-
-Modifications:
-- added patch to fix ipodpatcher error levels Rockbox's Flyspray
-  task #8827: http://www.rockbox.org/tracker/task/8827
-- added easy "patch" scripts for Windows and Linux
-  (untested on Macs and 64-bit Linux)
-- added pre-compiled ipodpatcher binaries
-  for Windows (compiled by Keripo), 32-bit Linux
-  (compiled by Keripo), 64-bit Linux (Rockbox wiki) and
-  Mac OS X (compiled by Matthew Croop)
-
-To do:
-- find someone to help recompile ipodpatcher on 64-bit Linux
-- FastLaunch.sh searcher
-- sub-menu support (look at iBoot Advanced / iLoadz)
 
 ### License
 
