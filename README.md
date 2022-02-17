@@ -2,6 +2,8 @@
 
 Multi-OS bootloader for PortalPlayer based classic iPods.
 
+![iPodLoader2 on an iPod Video 5.5G](docs/pics/ipodloader2.jpg)
+
 ## Compatibility
 
 iPodLoader 2 functions with the following iPod generations:
@@ -22,34 +24,26 @@ iPodLoader 2 can boot the following operating systems:
 * iPod OS (stock Apple firmware)
 * Rockbox
 * iPod Linux
+* It can also boot into firmware disk mode, or put the iPod back to sleep.
 
-## Building
+## Bootloader installation
 
-### Installation of toolchain (arm cross-compiler)
+See [INSTALL](docs/INSTALL.md) for detailed iPodLoader2 installation instructions.
 
-Debian Linux x86_64 11 (Bullseye) is used as the reference distro, although the install commands will work on Ubuntu and are easily adapted for other distros.
 
-#### Install `make`:
+## Installing iPod Linux
 
-`sudo apt install make`
+See [IPOD_LINUX_INSTALL](docs/IPOD_LINUX_INSTALL.md) for up to date iPod Linux installation instructions.
 
-Or optionally, you can instead install the full `build-essential` which includes other useful tools like gcc:
+The ZeroSlackr distribution includes very fast emulators such as iBoy (GB/GBC) and igpSP (GBA), so if you want to use the iPod for emulating games, go here!
 
-`sudo apt install build-essential`
+## Installing Rockbox
 
-#### Install the `arm-none-eabi` cross compiler:
+See [ROCKBOX_INSTALL](docs/ROCKBOX_INSTALL.md) for Rockbox installation instructions.
 
-`sudo apt install gcc-arm-none-eabi`
+## Building iPodLoader2
 
-### Building the source
-
-In the root directory of the repository, run
-
-`make`
-
-If the build went smoothly, an output file called `loader.bin` should have been output in the root.
-
-If you want to rebuild the solution, simply run `make clean` and then run `make` again.
+See [BUILDING](docs/BUILDING.md) for detailed build instructions, for if you want to build iPodLoader2 from source.
 
 ## Overview
 
