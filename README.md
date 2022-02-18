@@ -3,6 +3,7 @@
 Multi-OS bootloader for PortalPlayer based classic iPods.
 
 ![iPodLoader2 on an iPod Video 5.5G](docs/pics/ipodloader2.jpg)
+*The iPodLoader2 boot menu*
 
 ## Compatibility
 

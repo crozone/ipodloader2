@@ -1,14 +1,12 @@
-# Rockbox installation
+# Rockbox
 
-![Rockbox home menu](pics/rockbox.jpg)
-
-## Overview
-
-[Rockbox](https://www.rockbox.org/) is open source jukebox firmware. It is available for many PortalPlayer based devices, including classic iPods.
-
-This guide assumes that iPodLoader2 is already installed.
+[Rockbox](https://www.rockbox.org/) is a free, open source jukebox firmware for digital music players. It is available for many PortalPlayer based devices, including classic iPods (iPod 1g through 6g (Classic), iPod Mini, iPod Nano 1g, iPod Nano 2g).
 
 ## Installation
+
+### Install iPodLoader2
+
+Install iPodLoader2 if you have not already done so. See [INSTALL](INSTALL.md) for details.
 
 ### Get Rockbox
 
@@ -30,4 +28,10 @@ Ensure that the Rockbox boot menu entry is included in loader.cfg:
 
 Eject the iPod and reboot.
 
-Done!
+Select Rockbox from the boot menu. You should be presented with the Rockbox homescreen.
+
+Rock on!
+
+
+![Rockbox home menu](pics/rockbox.jpg)
+*The Rockbox home menu*

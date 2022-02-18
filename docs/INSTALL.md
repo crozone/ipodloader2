@@ -94,4 +94,9 @@ Sleep @ standby
 
 Eject the iPod. The iPod should detect that its firmware has been updated, and reboot on its own. If it does not, reboot it by holding down Menu + Select for 6 seconds.
 
-The Loader 2 boot menu should be presented and allow you to select an operating system.
+The iPodLoader2 boot menu should be presented and allow you to select an operating system.
+
+Go and boot some stuff!
+
+![iPodLoader2 on an iPod Video 5.5G](pics/ipodloader2.jpg)
+*The iPodLoader2 boot menu*
