@@ -398,7 +398,8 @@ static fat32_file *fat32_findfile(uint32 startCluster, int isRoot, char *fname)
     } else if ( ftype & 0x10 ) {
       // A directory
       int len = next-fname;
-      if( next && (mlc_strncasecmp( shortname, fname, len ) == 0 || mlc_strncasecmp( longname, fname, len ) == 0) ) {
+      if( next && ((mlc_strncasecmp( shortname, fname, len ) == 0 && shortname[len] == '\0')
+                   || (mlc_strncasecmp( longname, fname, len ) == 0 && longname[len] == '\0')) ) {
         return fat32_findfile( cluster, 0, next+1 );
       }
     }
