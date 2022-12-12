@@ -28,12 +28,24 @@
  * Hence, this startup code here copies the loader code to 0x40000000 and
  * then runs it from there.
  */
-
+ 
+/* The loader base address. Loader is build to be run from IRAM (Fast RAM) */
+        .equ    LOADER_BASE, 0x40000000
+ 
+/* Memory addresses for the PP5002 */
+        .equ    PP5002_SDRAM, 0x28000000
         .equ    PP5002_PROC_ID, 0xc4000000
         .equ    PP5002_COP_CTRL, 0xcf004058
-
+        
+/* Memory addresses for the PP5020 */
+        .equ    PP5020_SDRAM, 0x10000000
         .equ    PP5020_PROC_ID, 0x60000000
         .equ    PP5020_COP_CTRL, 0x60007004
+
+/* Values for determining CPU kind (main CPU vs COP) from processor ID */
+        .equ    PROC_ID_KIND_MASK, 0xff
+        .equ    PROC_ID_KIND_CPU, 0x55
+        .equ    PROC_ID_KIND_COP, 0xaa
 
 /* CPU modes */
         .equ    MODE_MASK, 0x1f
@@ -54,36 +66,89 @@
 
 .global _start
 _start:
-        /* get the high part of our execute address */
+       /* CPU MODEL DETECTION
+        *
+        * We need to detect if we're running on a PP5002 or a PP5020
+        * since the two CPUs have different memory mappings.
+        *
+        * The PP5002 SDRAM starts at 0x28000000 (PP5002_SDRAM)
+        * The PP5020 SDRAM starts at 0x10000000 (PP5020_SDRAM)
+        *
+        * So, if the current PC is within the 0x28000000 address space,
+        * we're on a PP5502. Else, assume we're on a PP5020.
+        *
+        * PC & 0xff000000 is stored in r8.
+        * The rest of the code can then check the CPU model at any time with:
+        *
+        * cmp     r8, #PP5002_SDRAM
+        *
+        * If PP5002, the Z (zero) flag is set. Else, the Z flag is cleared.
+        */
+
         ldr     r0, =0xff000000
         and     r8, pc, r0
-        cmp     r8, #0x28000000         @ r8 is used later
+
+       /* CPU vs COP DETECTION
+        *
+        * Both the main CPU and COP (coprocessor) start executing from the same start address,
+        * so the current thread could be running on either the CPU or COP.
+        *
+        * Detect whether we're running on the CPU or COP:
+        *
+        * The CPU Processor ID has a lower byte of 0x55.
+        * The COP Processor ID has a lower byte of 0xaa.
+        */
+
+        /* Load the CPU ID into r0 */
+        /* The processor ID address is different depending on the CPU model */
+        cmp     r8, #PP5002_SDRAM
         moveq   r0, #PP5002_PROC_ID
         movne   r0, #PP5020_PROC_ID
         ldr     r0, [r0]
-        and     r0, r0, #0xff
-        cmp     r0, #0x55
+        and     r0, r0, #PROC_ID_KIND_MASK
+        cmp     r0, #PROC_ID_KIND_CPU
+
+        /*
+         * NOTE: In GNU assembly, xb and xf are label extensions.
+         * 1b means "search backwards for the next label that is "1".
+         * 1f means "search forwards for the next label that is "1".
+         *
+        /*
+
+        /* If we're on the main CPU, jump to loader memcopy */
         beq     1f
 
-        /* put us (co-processor) to sleep */
-        cmp     r8, #0x28000000
+        /* We're on the COP. Go to sleep by writing to the COP control register */
+        /* The COP control register address and layout is different depending on the CPU model */
+        cmp     r8, #PP5002_SDRAM
         ldreq   r4, =PP5002_COP_CTRL
         moveq   r3, #0xca
         ldrne   r4, =PP5020_COP_CTRL
         movne   r3, #0x80000000
+        /* Go to sleep */
         str     r3, [r4]
+
+        /* The COP is now asleep, waiting to be woken up by the main CPU. */
+        /* After waking up, jump to cop_wake_start */
         ldr     pc, =cop_wake_start
 cop_wake_start:
         /* jump the COP to startup */
         ldr     r0, =startup_loc
         ldr     pc, [r0]
 
+       /* START LOADER CODE MEMCOPY
+        *
+        * The loader code is built to run at address 0x40000000,
+        * which is the start of the PP's second RAM area, called IRAM or Fast RAM.
+        * The loader code will be copied from the text region to address 0x40000000.
+       /*
+
 1:      /* get the high part of our execute address */
         ldr     r2, =0xffffff00
         and     r4, pc, r2
 
-        /* copy the code to 0x40000000 */
-        mov     r5, #0x40000000         /* start of code */
+        /* copy the code to 0x40000000 (LOADER_BASE) */
+        mov     r5, #LOADER_BASE         /* start of code */
         ldr     r6, =__data_start__     /* end of code */
         sub     r0, r6, r5      /* lenth of text */
         add     r0, r4, r0      /* r0 points to start of text */
@@ -156,7 +221,7 @@ init_bss:
         ldr     r1, =startup_loc
         str     r0, [r1]
 
-        cmp     r8, #0x28000000
+        cmp     r8, #PP5002_SDRAM
         bne     pp5020
 
         /* make sure COP is sleeping */
