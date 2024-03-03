@@ -643,10 +643,9 @@ static void ata_send_read_command(uint32 lba, uint32 count) {
  * return: The number of bytes actually read from the device
  */
 static uint32 ata_transfer_block(void *ptr, uint32 count) {
-  uint32 readcount = 0;
-
   // Data is read in as 16 bit words, so 2 bytes at a time.
   uint32 words = (BLOCK_SIZE / 2) * count;
+  uint32 words_received = 0;
 
   if(ptr != NULL) {
     uint16 *dst = (uint16*)ptr;
@@ -661,7 +660,7 @@ static uint32 ata_transfer_block(void *ptr, uint32 count) {
 
       /* Read another 16 bits of data into buffer */
       *dst++ = inw( pio_reg_addrs[REG_DATA] );
-      ++readcount;
+      ++words_received;
     }
   }
   else {
@@ -676,11 +675,11 @@ static uint32 ata_transfer_block(void *ptr, uint32 count) {
 
       /* Read another 16 bits of data and discard it */
       inw( pio_reg_addrs[REG_DATA] );
-      ++readcount;
+      ++words_received;
     }
   }
 
-  return readcount;
+  return words_received * 2;
 }
 
 /*
