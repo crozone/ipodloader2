@@ -112,8 +112,7 @@ _start:
          * NOTE: In GNU assembly, xb and xf are label extensions.
          * 1b means "search backwards for the next label that is "1".
          * 1f means "search forwards for the next label that is "1".
-         *
-        /*
+         */
 
         /* If we're on the main CPU, jump to loader memcopy */
         beq     1f
@@ -141,7 +140,7 @@ cop_wake_start:
         * The loader code is built to run at address 0x40000000,
         * which is the start of the PP's second RAM area, called IRAM or Fast RAM.
         * The loader code will be copied from the text region to address 0x40000000.
-       /*
+        */
 
 1:      /* get the high part of our execute address */
         ldr     r2, =0xffffff00
