@@ -148,18 +148,13 @@ void vfs_init( void) {
   ata_readblocks(iPodMBR, 0, 1);
 
   /* Sector multiplier is for 5.5G 80GB, which has 2048b sectors */
-  // TODO: Is it 2048 or 1024kb sectors???
-  sectormultiplier = ata_get_blks_per_phys_sector();
-  // if(ata_get_drivetype() == 1) {
-  //   sectormultiplier = 4;
-  // } else {
-  //   sectormultiplier = 1;
-  // }
+  /* TODO( ryan.crosby@live.com ) I think this should always be 1, but need to double check on an original 80GB HDD */
+  sectormultiplier = 1; //ata_get_blks_per_phys_sector();
 
   for(i=0; i < MAX_FILES; i++) vfs_handle[i].fd = -1;
 
   /* The number of valid partitions that were found */
-  uint8  foundpartcount = 0;
+  uint8 foundpartcount = 0;
 
   if( iPodMBR->MBR_signature == 0xAA55 ) {
     /* this is a WinPod with a DOS/ext2 partition scheme */
@@ -186,40 +181,46 @@ void vfs_init( void) {
        */
       switch(type) {
         case 0x00:
-          /* Technically this is an "Empty partition entry", but Apple uses it for the proprietary firmware partition */
-          ata_readblocks_uncached(fs_header, offset*sectormultiplier,1);
-          if( mlc_strncmp((void*)(fs_header->fwfsmagic),"]ih[", 4) ) {
-            offset = offset * sectormultiplier;
-            validoffset = 1;
-          }
-          else if((logBlkMultiplier != 1) && (logBlkMultiplier != sectormultiplier)) {
-            ata_readblocks_uncached(fs_header, offset*logBlkMultiplier,1);
-            if( mlc_strncmp((void*)(fs_header->fwfsmagic),"]ih[", 4) )
-            {
-              offset = offset * logBlkMultiplier;
+          if(i == 0) {
+            /* Technically this is an "Empty partition entry", but Apple uses it for the proprietary firmware partition at partition 0 */
+            ata_readblocks(fs_header, offset*sectormultiplier, 1);
+            if( mlc_strncmp((void*)(fs_header->fwfsmagic),"]ih[", 4) ) {
+              offset = offset * sectormultiplier;
               validoffset = 1;
             }
-          }
+            else if((logBlkMultiplier != 1) && (logBlkMultiplier != sectormultiplier)) {
+              ata_readblocks(fs_header, offset*logBlkMultiplier, 1);
+              if( mlc_strncmp((void*)(fs_header->fwfsmagic),"]ih[", 4) )
+              {
+                offset = offset * logBlkMultiplier;
+                validoffset = 1;
+              }
+            }
 
-          if(validoffset) {
-            foundpartcount++;
-            mlc_printf("[%d]: iPod FW\n", i);
-            fwfs_newfs(i, offset);
+            if(validoffset) {
+              foundpartcount++;
+              mlc_printf("[%d]: iPod FW\n", i);
+              fwfs_newfs(i, offset);
+            }
+            else {
+              mlc_printf("[%d]: Bad iPod FW entry\n", i);
+              mlc_show_critical_error();
+            }
           }
           else {
             mlc_printf("[%d]: Empty\n", i);
           }
-          
+
           break;
         case 0x83:
           /* EXT2 partition */
-          ata_readblocks_uncached(fs_header, offset*sectormultiplier + 2, 1);
+          ata_readblocks(fs_header, offset*sectormultiplier + 2, 1);
           if(fs_header->ext2magic == 0xEF53) {
             offset = offset*sectormultiplier;
             validoffset = 1;
           }
           else if((logBlkMultiplier != 1) && (logBlkMultiplier != sectormultiplier)) {
-            ata_readblocks_uncached(fs_header, offset*logBlkMultiplier + 2, 1);
+            ata_readblocks(fs_header, offset*logBlkMultiplier + 2, 1);
             if(fs_header->ext2magic == 0xEF53) {
               offset = offset*logBlkMultiplier;
               validoffset = 1;
@@ -233,20 +234,22 @@ void vfs_init( void) {
           }
           else {
             mlc_printf("[%d]: Bad EXT2 entry\n", i);
-            mlc_delay_ms(1000);
+            mlc_show_critical_error();
           }
 
           break;
         case 0xB:
           /* FAT partition */
-          ata_readblocks_uncached(fs_header, offset*sectormultiplier,1);
+          ata_readblocks(fs_header, offset*sectormultiplier, 1);
           if(fs_header->fat32magic == 0xAA55) {
             offset = offset*sectormultiplier;
+            validoffset = 1;
           }
           else if((logBlkMultiplier != 1) && (logBlkMultiplier != sectormultiplier)) {
-            ata_readblocks_uncached(fs_header, offset*logBlkMultiplier,1);
+            ata_readblocks(fs_header, offset*logBlkMultiplier, 1);
             if(fs_header->fat32magic == 0xAA55) {
               offset = offset*logBlkMultiplier;
+              validoffset = 1;
             }
           }
 
@@ -257,7 +260,7 @@ void vfs_init( void) {
           }
           else {
             mlc_printf("[%d]: Bad FAT entry\n", i);
-            mlc_delay_ms(1000);
+            mlc_show_critical_error();
           }
 
           break;
@@ -284,11 +287,14 @@ void vfs_init( void) {
     check_mac_partitions ((uint8 *)iPodMBR);
   }
   else {
-    mlc_printf("Invalid MBR\n");
-	  mlc_hexdump (iPodMBR, 16);
-	  mlc_hexdump (((uint8*) iPodMBR)+512-16, 16);
+    mlc_printf("Invalid MBR\n\n");
+    mlc_printf("MBR Sig: %04hhX\n", iPodMBR->MBR_signature);
+    mlc_printf("Disk Sig: %08hhX\n", iPodMBR->disk_signature);
+
+    mlc_printf("Disk start:\n");
+    mlc_hexdump (iPodMBR, 32);
+
     mlc_show_critical_error();
     return;
   }
-
 }
