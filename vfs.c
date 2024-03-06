@@ -145,7 +145,7 @@ void vfs_init( void) {
   fs_header_t *fs_header;
   fs_header = mlc_malloc( sizeof(fs_header_t));
 
-  ata_readblocks_uncached(iPodMBR, 0, 1);
+  ata_readblocks(iPodMBR, 0, 1);
 
   /* Sector multiplier is for 5.5G 80GB, which has 2048b sectors */
   // TODO: Is it 2048 or 1024kb sectors???

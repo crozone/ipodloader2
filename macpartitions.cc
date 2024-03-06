@@ -582,14 +582,14 @@ static size_t hfsplus_read (void *fsdata, void *ptr, size_t size, size_t nmemb, 
 					#if DEBUG
 						mlc_printf ("## hfs warning: slow read\n");
 					#endif
-					ata_readblocks_uncached (gBlkBuf, blockNum, 1);	// uncached read for whole blocks
+					ata_readblocks (gBlkBuf, blockNum, 1);	// uncached read for whole blocks
 				} else {
 					ata_readblocks (gBlkBuf, blockNum, 1);	// cached read for partial blocks
 				}
 				copyBytesFromTo ((char*)gBlkBuf + ofsInBlk, (char*)ptr, bytesInBlk);
 			} else {
 				// load the data directly to the destination
-				ata_readblocks_uncached (ptr, blockNum, 1);
+				ata_readblocks (ptr, blockNum, 1);
 			}
 			ofsInBlk = 0;
 			ptr = (char*)ptr + bytesInBlk;
