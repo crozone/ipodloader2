@@ -249,7 +249,7 @@ static void opto_i2c_init(void)
     }
   }
 
-  outl(inl(IPOD_PP5020_GPIOB_OUTPUT_VAL) | 0x10, IPOD_PP5020_GPIOB_OUTPUT_VAL); /* port B bit 4 = 1 */
+  outb(inb(IPOD_PP5020_GPIOB_OUTPUT_VAL) | 0x10, IPOD_PP5020_GPIOB_OUTPUT_VAL); /* port B bit 4 = 1 */
 
   outl(inl(IPOD_PP5020_DEV_EN) | 0x10000, IPOD_PP5020_DEV_EN);  /* dev enable */
   outl(inl(IPOD_PP5020_DEV_RS) | 0x10000, IPOD_PP5020_DEV_RS);  /* dev reset */
@@ -374,7 +374,7 @@ static void key_i2c_interrupt(int irq, void *dev_id, struct pt_regs * regs)
   outl(inl(0x7000c104) | 0xC000000, 0x7000c104);
   outl(0x400a1f00, 0x7000c100);
 
-  outl(inl(IPOD_PP5020_GPIOB_OUTPUT_VAL) | 0x10, IPOD_PP5020_GPIOB_OUTPUT_VAL); /* port B bit 4 = 1 */
+  outb(inb(IPOD_PP5020_GPIOB_OUTPUT_VAL) | 0x10, IPOD_PP5020_GPIOB_OUTPUT_VAL); /* port B bit 4 = 1 */
 }
 
 static void process_keys_502x (uint8 source, uint8 wheel_source, uint8 wheel_state)
@@ -548,20 +548,20 @@ void keypad_init(void)
      */
 
     /* buttons - enable as input */
-    outl(inl(IPOD_PP5020_GPIOA_ENABLE) | 0x3f, IPOD_PP5020_GPIOA_ENABLE);
-    outl(inl(IPOD_PP5020_GPIOA_OUTPUT_EN) & ~0x3f, IPOD_PP5020_GPIOA_OUTPUT_EN);
+    outb(inb(IPOD_PP5020_GPIOA_ENABLE) | 0x3f, IPOD_PP5020_GPIOA_ENABLE);
+    outb(inb(IPOD_PP5020_GPIOA_OUTPUT_EN) & ~0x3f, IPOD_PP5020_GPIOA_OUTPUT_EN);
 
     /* scroll wheel- enable as input */
-    outl(inl(IPOD_PP5020_GPIOB_ENABLE) | 0x30, IPOD_PP5020_GPIOB_ENABLE); /* port b 4,5 */
-    outl(inl(IPOD_PP5020_GPIOB_OUTPUT_EN) & ~0x30, IPOD_PP5020_GPIOB_OUTPUT_EN); /* port b 4,5 */
+    outb(inb(IPOD_PP5020_GPIOB_ENABLE) | 0x30, IPOD_PP5020_GPIOB_ENABLE); /* port b 4,5 */
+    outb(inb(IPOD_PP5020_GPIOB_OUTPUT_EN) & ~0x30, IPOD_PP5020_GPIOB_OUTPUT_EN); /* port b 4,5 */
 
     /* buttons - set interrupt levels */
-    outl(~(inl(IPOD_PP5020_GPIOA_INPUT_VAL) & 0x3f), IPOD_PP5020_GPIOA_INT_LEV);
-    outl((inl(IPOD_PP5020_GPIOA_INT_STAT) & 0x3f), IPOD_PP5020_GPIOA_INT_CLR);
+    outb(~(inb(IPOD_PP5020_GPIOA_INPUT_VAL) & 0x3f), IPOD_PP5020_GPIOA_INT_LEV);
+    outb((inb(IPOD_PP5020_GPIOA_INT_STAT) & 0x3f), IPOD_PP5020_GPIOA_INT_CLR);
 
     /* scroll wheel - set interrupt levels */
-    outl(~(inl(IPOD_PP5020_GPIOB_INPUT_VAL) & 0x30), IPOD_PP5020_GPIOB_INT_LEV);
-    outl((inl(IPOD_PP5020_GPIOB_INT_STAT) & 0x30), IPOD_PP5020_GPIOB_INT_CLR);
+    outb(~(inb(IPOD_PP5020_GPIOB_INPUT_VAL) & 0x30), IPOD_PP5020_GPIOB_INT_LEV);
+    outb((inb(IPOD_PP5020_GPIOB_INT_STAT) & 0x30), IPOD_PP5020_GPIOB_INT_CLR);
 
     if ((err = request_irq (PP5020_GPIO_IRQ, key_mini_interrupt, 1, KEYBOARD_DEV_ID)) != 0) {
       mlc_printf("ipodkb: IRQ %d failed: %d\n", PP5020_GPIO_IRQ, err);
@@ -571,8 +571,8 @@ void keypad_init(void)
     process_keys_502x (0x3f, 0, 0); // get the current state of keys and hold switch
 
     // enable interrupts
-    outl(0x3f, IPOD_PP5020_GPIOA_INT_EN);
-    outl(0x30, IPOD_PP5020_GPIOB_INT_EN);
+    outb(0x3f, IPOD_PP5020_GPIOA_INT_EN);
+    outb(0x30, IPOD_PP5020_GPIOB_INT_EN);
 
   }
   else {
@@ -603,15 +603,15 @@ void keypad_init(void)
     process_keys_502x (0x3f, 0, 0); // get the current state of keys and hold switch
 
     // hold switch - enable as input
-    outl(inl(IPOD_PP5020_GPIOA_ENABLE) | 0x20, IPOD_PP5020_GPIOA_ENABLE);
-    outl(inl(IPOD_PP5020_GPIOA_OUTPUT_EN) & ~0x20, IPOD_PP5020_GPIOA_OUTPUT_EN);
+    outb(inb(IPOD_PP5020_GPIOA_ENABLE) | 0x20, IPOD_PP5020_GPIOA_ENABLE);
+    outb(inb(IPOD_PP5020_GPIOA_OUTPUT_EN) & ~0x20, IPOD_PP5020_GPIOA_OUTPUT_EN);
 
     // hold switch - set interrupt levels
-    outl(~(inl(IPOD_PP5020_GPIOA_INPUT_VAL) & 0x20), IPOD_PP5020_GPIOA_INT_LEV);
-    outl((inl(IPOD_PP5020_GPIOA_INT_STAT) & 0x20), IPOD_PP5020_GPIOA_INT_CLR);
+    outb(~(inb(IPOD_PP5020_GPIOA_INPUT_VAL) & 0x20), IPOD_PP5020_GPIOA_INT_LEV);
+    outb((inb(IPOD_PP5020_GPIOA_INT_STAT) & 0x20), IPOD_PP5020_GPIOA_INT_CLR);
 
     // enable interrupts
-    outl(0x20, IPOD_PP5020_GPIOA_INT_EN);
+    outb(0x20, IPOD_PP5020_GPIOA_INT_EN);
   }
 }
 
@@ -621,7 +621,7 @@ void keypad_exit(void)
   if( ipod_hw_ver < 4 ) {
     outb(0x00, IPOD_PP5002_GPIOA_INT_EN);
   } else {
-    outl(0x00, IPOD_PP5020_GPIOA_INT_EN);
-    outl(0x00, IPOD_PP5020_GPIOB_INT_EN);
+    outb(0x00, IPOD_PP5020_GPIOA_INT_EN);
+    outb(0x00, IPOD_PP5020_GPIOB_INT_EN);
   }
 }
