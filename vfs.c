@@ -271,7 +271,7 @@ void vfs_init( void) {
     }
 
     if(foundpartcount > 0) {
-      mlc_printf("Found %d valid partitions\n", i);
+      mlc_printf("Found %d valid partitions\n", foundpartcount);
     }
     else {
       /* No valid partition was found */
