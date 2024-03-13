@@ -6,9 +6,6 @@
 #include "console.h"
 #include "keypad.h"
 
-#define RTC inl(0x60005010)
-
-
 static uint8 kbd_state = 0;
 static int ipod_hw_ver;
 
@@ -288,7 +285,7 @@ static void key_i2c_interrupt(int irq, void *dev_id, struct pt_regs * regs)
   static int wheelloc = -1;
   static int lasttouch = 0;
   
-  if (lasttouch && ((RTC - lasttouch) > 500000)) {
+  if (lasttouch && ((inl(IPOD_PP5020_USEC_TIMER) - lasttouch) > 500000)) {
     lasttouch = 0;
     wheelloc = -1;
   }
@@ -331,19 +328,19 @@ static void key_i2c_interrupt(int irq, void *dev_id, struct pt_regs * regs)
 
         if (wheelloc == -1) {
           wheelloc = touch;
-          lasttouch = RTC;
+          lasttouch = inl(IPOD_PP5020_USEC_TIMER);
         } else if ((adjtouch - wheelloc) > 12) {
           wheelloc = touch;
-          lasttouch = RTC;
+          lasttouch = inl(IPOD_PP5020_USEC_TIMER);
           handle_scancode(R_SC, 1);
           handle_scancode(R_SC, 0);
         } else if ((adjtouch - wheelloc) < -12) {
           wheelloc = touch;
-          lasttouch = RTC;
+          lasttouch = inl(IPOD_PP5020_USEC_TIMER);
           handle_scancode(L_SC, 1);
           handle_scancode(L_SC, 0);
         } else if (wheelloc != touch) {
-          lasttouch = RTC;
+          lasttouch = inl(IPOD_PP5020_USEC_TIMER);
         }
 
       } else if (button_mask & 0x20) {

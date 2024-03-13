@@ -3,8 +3,6 @@
 
 #include "bootloader.h"
 
-#define IPOD_PP5002_RTC 0xCF001110
-#define IPOD_PP5020_RTC 0x60005010
 #define IPOD_PP5002_LCD_BASE    0xC0001000
 #define IPOD_PP5020_LCD_BASE    0x70003000
 
@@ -86,6 +84,22 @@
 #define IPOD_PP5020_GPIOC_INT_CLR    0x6000d078
 #define IPOD_PP5020_GPIOD_INT_CLR    0x6000d07c
 
+/* Timers for PP5002 */
+#define IPOD_PP5002_TIMER1_CFG       0xcf001100
+#define IPOD_PP5002_TIMER1_VAL       0xcf001104
+#define IPOD_PP5002_TIMER2_CFG       0xcf001108
+#define IPOD_PP5002_TIMER2_VAL       0xcf00110c
+#define IPOD_PP5002_USEC_TIMER       0xcf001110
+#define IPOD_PP5002_RTC              0xcf001114
+
+/* Timers for PP5020 */
+#define IPOD_PP5020_TIMER1_CFG       0x60005000
+#define IPOD_PP5020_TIMER1_VAL       0x60005004
+#define IPOD_PP5020_TIMER2_CFG       0x60005008
+#define IPOD_PP5020_TIMER2_VAL       0x6000500c
+#define IPOD_PP5020_USEC_TIMER       0x60005010
+#define IPOD_PP5020_RTC              0x60005014
+
 /* Device Controller for the PP5020 */
 #define IPOD_PP5020_DEV_RS           0x60006004
 #define IPOD_PP5020_DEV_RS2          0x60006008
@@ -95,7 +109,7 @@
 typedef struct {
   uint32 hw_rev;
   uint32 lcd_base, lcd_busy_mask;
-  uint32 rtc;
+  uint32 usec_timer;
   uint32 ide_base, ide_control;
   uint32 mem_base, mem_size;
   uint32 iram_base, iram_full_size, iram_user_end;
