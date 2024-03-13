@@ -6,9 +6,6 @@
 #include "console.h"
 #include "keypad.h"
 
-#define RTC inl(0x60005010)
-
-
 static uint8 kbd_state = 0;
 static int ipod_hw_ver;
 
@@ -168,8 +165,8 @@ static void process_keys_5002 (uint8 source)
   uint8 state;
 
   // get current keypad status
-  state = inb(0xcf000030);
-  outb(~state, 0xcf000060);
+  state = inb(IPOD_PP5002_GPIOA_INPUT_VAL);
+  outb(~state, IPOD_PP5002_GPIOA_INT_LEV);
 
   last_source = source;
   last_state = state;
@@ -182,10 +179,10 @@ static void process_keys_5002 (uint8 source)
     was_hold = 0;
   }
 
-  if (source & 0x20) {
+  if (source & IPOD_KEYPAD_HOLD) {
     if (ipod_hw_ver == 0x3) {
       // 3g hold switch is active low
-      if (state & 0x20) {
+      if (state & IPOD_KEYPAD_HOLD) {
         handle_scancode (HOLD_SC, 0);
         handle_scroll_wheel (-1, 0); // reset
         was_hold = 1;
@@ -211,7 +208,7 @@ static void process_keys_5002 (uint8 source)
 
 finish:
   // ack any active interrupts
-  outb(source, 0xcf000070);
+  outb(source, IPOD_PP5002_GPIOA_INT_CLR);
 }
 
 static void kbd_intr_5002 (int irq, void *dev_id, struct pt_regs *regs)
@@ -222,7 +219,7 @@ static void kbd_intr_5002 (int irq, void *dev_id, struct pt_regs *regs)
   if (ipod_hw_ver == 0x3) mlc_delay_us(250);
 
   // get source of interupts
-  source = inb(0xcf000040);
+  source = inb(IPOD_PP5002_GPIOA_INT_STAT);
   if (source == 0) return;   // not for us
 
   process_keys_5002 (source);
@@ -231,6 +228,10 @@ static void kbd_intr_5002 (int irq, void *dev_id, struct pt_regs *regs)
 static void opto_i2c_init(void)
 {
   int i, curr_value;
+
+  /*
+   * 0x7000c00C -> 0x7000C140 are the I2C controller
+   */
 
   /* wait for value to settle */
   i = 1000;
@@ -245,12 +246,12 @@ static void opto_i2c_init(void)
     }
   }
 
-  outl(inl(0x6000d024) | 0x10, 0x6000d024); /* port B bit 4 = 1 */
+  outb(inb(IPOD_PP5020_GPIOB_OUTPUT_VAL) | 0x10, IPOD_PP5020_GPIOB_OUTPUT_VAL); /* port B bit 4 = 1 */
 
-  outl(inl(0x6000600c) | 0x10000, 0x6000600c);  /* dev enable */
-  outl(inl(0x60006004) | 0x10000, 0x60006004);  /* dev reset */
+  outl(inl(IPOD_PP5020_DEV_EN) | 0x10000, IPOD_PP5020_DEV_EN);  /* dev enable */
+  outl(inl(IPOD_PP5020_DEV_RS) | 0x10000, IPOD_PP5020_DEV_RS);  /* dev reset */
   mlc_delay_us(5);
-  outl(inl(0x60006004) & ~0x10000, 0x60006004); /* dev reset finish */
+  outl(inl(IPOD_PP5020_DEV_RS) & ~0x10000, IPOD_PP5020_DEV_RS); /* dev reset finish */
 
   outl(0xffffffff, 0x7000c120);
   outl(0xffffffff, 0x7000c124);
@@ -284,7 +285,7 @@ static void key_i2c_interrupt(int irq, void *dev_id, struct pt_regs * regs)
   static int wheelloc = -1;
   static int lasttouch = 0;
   
-  if (lasttouch && ((RTC - lasttouch) > 500000)) {
+  if (lasttouch && ((inl(IPOD_PP5020_USEC_TIMER) - lasttouch) > 500000)) {
     lasttouch = 0;
     wheelloc = -1;
   }
@@ -327,19 +328,19 @@ static void key_i2c_interrupt(int irq, void *dev_id, struct pt_regs * regs)
 
         if (wheelloc == -1) {
           wheelloc = touch;
-          lasttouch = RTC;
+          lasttouch = inl(IPOD_PP5020_USEC_TIMER);
         } else if ((adjtouch - wheelloc) > 12) {
           wheelloc = touch;
-          lasttouch = RTC;
+          lasttouch = inl(IPOD_PP5020_USEC_TIMER);
           handle_scancode(R_SC, 1);
           handle_scancode(R_SC, 0);
         } else if ((adjtouch - wheelloc) < -12) {
           wheelloc = touch;
-          lasttouch = RTC;
+          lasttouch = inl(IPOD_PP5020_USEC_TIMER);
           handle_scancode(L_SC, 1);
           handle_scancode(L_SC, 0);
         } else if (wheelloc != touch) {
-          lasttouch = RTC;
+          lasttouch = inl(IPOD_PP5020_USEC_TIMER);
         }
 
       } else if (button_mask & 0x20) {
@@ -370,7 +371,7 @@ static void key_i2c_interrupt(int irq, void *dev_id, struct pt_regs * regs)
   outl(inl(0x7000c104) | 0xC000000, 0x7000c104);
   outl(0x400a1f00, 0x7000c100);
 
-  outl(inl(0x6000d024) | 0x10, 0x6000d024); /* port B bit 4 = 1 */
+  outb(inb(IPOD_PP5020_GPIOB_OUTPUT_VAL) | 0x10, IPOD_PP5020_GPIOB_OUTPUT_VAL); /* port B bit 4 = 1 */
 }
 
 static void process_keys_502x (uint8 source, uint8 wheel_source, uint8 wheel_state)
@@ -378,21 +379,21 @@ static void process_keys_502x (uint8 source, uint8 wheel_source, uint8 wheel_sta
   uint8 state;
 
   /* get current keypad & wheel status */
-  state = inb(0x6000d030) & 0x3f;
+  state = inb(IPOD_PP5020_GPIOA_INPUT_VAL) & 0x3f;
   if (source) {
     last_source = source;
     last_state = state;
   }
 
-  outb(~state, 0x6000d060);  // toggle interrupt level
+  outb(~state, IPOD_PP5020_GPIOA_INT_LEV);  // toggle interrupt level
   if (ipod_hw_ver == 0x4) {
-    wheel_state = inb(0x6000d034) & 0x30;
-    outb(~wheel_state, 0x6000d064);  // toggle interrupt level
+    wheel_state = inb(IPOD_PP5020_GPIOB_INPUT_VAL) & 0x30;
+    outb(~wheel_state, IPOD_PP5020_GPIOB_INT_LEV);  // toggle interrupt level
   }
 
-  if (source & 0x20) {
+  if (source & IPOD_KEYPAD_HOLD) {
     // hold switch is active low
-    int engaged = !(state & 0x20);
+    int engaged = !(state & IPOD_KEYPAD_HOLD);
     handle_scancode (HOLD_SC, engaged);
     if (!engaged) {
       handle_scroll_wheel (-1, 0); // reset
@@ -422,9 +423,9 @@ static void key_mini_interrupt(int irq, void *dev_id, struct pt_regs * regs)
   mlc_delay_us(250);
 
   /* get source(s) of interupt */
-  source = inb(0x6000d040) & 0x3f;
+  source = inb(IPOD_PP5020_GPIOA_INT_STAT) & 0x3f;
   if (ipod_hw_ver == 0x4) {
-    wheel_source = inb(0x6000d044) & 0x30;
+    wheel_source = inb(IPOD_PP5020_GPIOB_INT_STAT) & 0x30;
   } else {
     wheel_source = 0x0;
   }
@@ -437,10 +438,10 @@ static void key_mini_interrupt(int irq, void *dev_id, struct pt_regs * regs)
 
   /* ack any active interrupts */
   if (source) {
-    outb(source, 0x6000d070);
+    outb(source, IPOD_PP5020_GPIOA_INT_CLR);
   }
   if (wheel_source) {
-    outb(wheel_source, 0x6000d074);
+    outb(wheel_source, IPOD_PP5020_GPIOB_INT_CLR);
   }
 }
 
@@ -454,11 +455,11 @@ void keypad_test (void)
     console_suppress_fbupdate (1); // suppresses fb_update calls for now
     mlc_printf ("Keypad test screen\n");
     if( ipod_hw_ver < 4 ) {
-      src = inb(0xcf000040);
-      stt = inb(0xcf000030);
+      src = inb(IPOD_PP5002_GPIOA_INT_STAT);
+      stt = inb(IPOD_PP5002_GPIOA_INPUT_VAL);
     } else {
-      src = inb(0x6000d040);
-      stt = inb(0x6000d030);
+      src = inb(IPOD_PP5020_GPIOA_INT_STAT);
+      stt = inb(IPOD_PP5020_GPIOA_INPUT_VAL);
     }
     mlc_printf (" source %02x (%02x)\n", src, last_source);
     mlc_printf (" state1 %02x (%02x)\n", stt, last_state);
@@ -498,6 +499,10 @@ void keypad_enable_wheelclicks (int rew_left, int fwd_left)
   do_clicks_fwd = fwd_left;
 }
 
+/*
+ * Keypad initialization.
+ * Sets up the clickwheel.
+ */
 void keypad_init(void)
 {
   int err;
@@ -505,16 +510,19 @@ void keypad_init(void)
   ipod_hw_ver = ipod_get_hwinfo()->hw_ver;
 
   if( ipod_hw_ver < 4 ) {
-  
-    // 1G - 3G Keyboard init
+    /*
+     * iPod 1G, 2G, 3G.
+     *
+     * These use the PP5002 memory mapping.
+    */
 
-    outb(~inb(0xcf000030), 0xcf000060);
-    outb(inb(0xcf000040), 0xcf000070);
+    outb(~inb(IPOD_PP5002_GPIOA_INPUT_VAL), IPOD_PP5002_GPIOA_INT_LEV);
+    outb(inb(IPOD_PP5002_GPIOA_INT_STAT), IPOD_PP5002_GPIOA_INT_CLR);
     
     if (ipod_hw_ver == 0x1) {
-      outb(inb(0xcf000004) | 0x1, 0xcf000004);
-      outb(inb(0xcf000014) | 0x1, 0xcf000014);
-      outb(inb(0xcf000024) | 0x1, 0xcf000024);
+      outb(inb(IPOD_PP5002_GPIOB_ENABLE) | 0x1, IPOD_PP5002_GPIOB_ENABLE);
+      outb(inb(IPOD_PP5002_GPIOB_OUTPUT_EN) | 0x1, IPOD_PP5002_GPIOB_OUTPUT_EN);
+      outb(inb(IPOD_PP5002_GPIOB_OUTPUT_VAL) | 0x1, IPOD_PP5002_GPIOB_OUTPUT_VAL);
     }
   
     if ((err = request_irq (PP5002_GPIO_IRQ, kbd_intr_5002, 1, KEYBOARD_DEV_ID)) != 0) {
@@ -525,27 +533,32 @@ void keypad_init(void)
     process_keys_5002 (0x3f); // get the current state of keys and hold switch
     
     // enable interrupts
-    outb(0xff, 0xcf000050);
+    outb(0xff, IPOD_PP5002_GPIOA_INT_EN);
     
-  } else if( ipod_hw_ver == 4 ) {
-
-    // mini keyboard init
+  }
+  else if( ipod_hw_ver == 4 ) {
+    /*
+     * iPod Mini 1G.
+     *
+     * This uses the PP5020 memory mapping, but communicates with the clickwheel
+     * via GPIO A.
+     */
 
     /* buttons - enable as input */
-    outl(inl(0x6000d000) | 0x3f, 0x6000d000);
-    outl(inl(0x6000d010) & ~0x3f, 0x6000d010);
+    outb(inb(IPOD_PP5020_GPIOA_ENABLE) | 0x3f, IPOD_PP5020_GPIOA_ENABLE);
+    outb(inb(IPOD_PP5020_GPIOA_OUTPUT_EN) & ~0x3f, IPOD_PP5020_GPIOA_OUTPUT_EN);
 
     /* scroll wheel- enable as input */
-    outl(inl(0x6000d004) | 0x30, 0x6000d004); /* port b 4,5 */
-    outl(inl(0x6000d014) & ~0x30, 0x6000d014); /* port b 4,5 */
+    outb(inb(IPOD_PP5020_GPIOB_ENABLE) | 0x30, IPOD_PP5020_GPIOB_ENABLE); /* port b 4,5 */
+    outb(inb(IPOD_PP5020_GPIOB_OUTPUT_EN) & ~0x30, IPOD_PP5020_GPIOB_OUTPUT_EN); /* port b 4,5 */
 
     /* buttons - set interrupt levels */
-    outl(~(inl(0x6000d030) & 0x3f), 0x6000d060);
-    outl((inl(0x6000d040) & 0x3f), 0x6000d070);
+    outb(~(inb(IPOD_PP5020_GPIOA_INPUT_VAL) & 0x3f), IPOD_PP5020_GPIOA_INT_LEV);
+    outb((inb(IPOD_PP5020_GPIOA_INT_STAT) & 0x3f), IPOD_PP5020_GPIOA_INT_CLR);
 
     /* scroll wheel - set interrupt levels */
-    outl(~(inl(0x6000d034) & 0x30), 0x6000d064);
-    outl((inl(0x6000d044) & 0x30), 0x6000d074);
+    outb(~(inb(IPOD_PP5020_GPIOB_INPUT_VAL) & 0x30), IPOD_PP5020_GPIOB_INT_LEV);
+    outb((inb(IPOD_PP5020_GPIOB_INT_STAT) & 0x30), IPOD_PP5020_GPIOB_INT_CLR);
 
     if ((err = request_irq (PP5020_GPIO_IRQ, key_mini_interrupt, 1, KEYBOARD_DEV_ID)) != 0) {
       mlc_printf("ipodkb: IRQ %d failed: %d\n", PP5020_GPIO_IRQ, err);
@@ -555,12 +568,17 @@ void keypad_init(void)
     process_keys_502x (0x3f, 0, 0); // get the current state of keys and hold switch
 
     // enable interrupts
-    outl(0x3f, 0x6000d050);
-    outl(0x30, 0x6000d054);
+    outb(0x3f, IPOD_PP5020_GPIOA_INT_EN);
+    outb(0x30, IPOD_PP5020_GPIOB_INT_EN);
 
-  } else {
-
-    // 4g, photo, mini2, nano etc.
+  }
+  else {
+    /*
+     * iPod 4G, Photo (4G with color display), Mini 2G, 5G, Nano, etc.
+     *
+     * These use the PP5020 memory mapping, and communicate with the clickwheel
+     * over i2c.
+     */
 
     /* this call seems not be needed, and we learned that it causes problems on some models,
        so we happily skip this call:
@@ -582,15 +600,15 @@ void keypad_init(void)
     process_keys_502x (0x3f, 0, 0); // get the current state of keys and hold switch
 
     // hold switch - enable as input
-    outl(inl(0x6000d000) | 0x20, 0x6000d000);
-    outl(inl(0x6000d010) & ~0x20, 0x6000d010);
+    outb(inb(IPOD_PP5020_GPIOA_ENABLE) | 0x20, IPOD_PP5020_GPIOA_ENABLE);
+    outb(inb(IPOD_PP5020_GPIOA_OUTPUT_EN) & ~0x20, IPOD_PP5020_GPIOA_OUTPUT_EN);
 
     // hold switch - set interrupt levels
-    outl(~(inl(0x6000d030) & 0x20), 0x6000d060);
-    outl((inl(0x6000d040) & 0x20), 0x6000d070);
+    outb(~(inb(IPOD_PP5020_GPIOA_INPUT_VAL) & 0x20), IPOD_PP5020_GPIOA_INT_LEV);
+    outb((inb(IPOD_PP5020_GPIOA_INT_STAT) & 0x20), IPOD_PP5020_GPIOA_INT_CLR);
 
     // enable interrupts
-    outl(0x20, 0x6000d050);
+    outb(0x20, IPOD_PP5020_GPIOA_INT_EN);
   }
 }
 
@@ -598,9 +616,9 @@ void keypad_exit(void)
 {
   // disable interrupts
   if( ipod_hw_ver < 4 ) {
-    outb(0x00, 0xcf000050);
+    outb(0x00, IPOD_PP5002_GPIOA_INT_EN);
   } else {
-    outl(0x00, 0x6000d050);
-    outl(0x00, 0x6000d054);
+    outb(0x00, IPOD_PP5020_GPIOA_INT_EN);
+    outb(0x00, IPOD_PP5020_GPIOB_INT_EN);
   }
 }

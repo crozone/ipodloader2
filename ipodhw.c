@@ -94,13 +94,13 @@ static void ipod_set_sysinfo(void) {
 
 /* get current usec counter */
 unsigned long timer_get_current(void) {
-  return inl(ipod.rtc);
+  return inl(ipod.usec_timer);
 }
 
 /* check if number of useconds has passed */
 int timer_passed(unsigned long clock_start, int usecs) {
   unsigned long clock;
-  clock = inl(ipod.rtc);
+  clock = inl(ipod.usec_timer);
   return (clock - clock_start) >= usecs;
 }
 
@@ -432,7 +432,7 @@ void ipod_init_hardware(void) {
     ipod.lcd_height    = 132;
     ipod.lcd_type      = 1;
     ipod.lcd_format    = IPOD_LCD_FORMAT_RGB565;
-    ipod.rtc           = IPOD_PP5020_RTC;
+    ipod.usec_timer    = IPOD_PP5020_USEC_TIMER;
     ipod.ide_base      = IPOD_PP5020_IDE_PRIMARY_BASE;
     ipod.ide_control   = IPOD_PP5020_IDE_PRIMARY_CONTROL;
     ipod.mem_base      = 0x10000000;
@@ -444,7 +444,7 @@ void ipod_init_hardware(void) {
     ipod.lcd_height    = 240;
     ipod.lcd_type      = 5;
     ipod.lcd_format    = IPOD_LCD_FORMAT_RGB565;
-    ipod.rtc           = IPOD_PP5020_RTC;
+    ipod.usec_timer    = IPOD_PP5020_USEC_TIMER;
     ipod.ide_base      = IPOD_PP5020_IDE_PRIMARY_BASE;
     ipod.ide_control   = IPOD_PP5020_IDE_PRIMARY_CONTROL;
     ipod.mem_base      = 0x10000000;
@@ -455,7 +455,7 @@ void ipod_init_hardware(void) {
     ipod.lcd_width     = 220;
     ipod.lcd_height    = 176;
     ipod.lcd_format    = IPOD_LCD_FORMAT_RGB565;
-    ipod.rtc           = IPOD_PP5020_RTC;
+    ipod.usec_timer    = IPOD_PP5020_USEC_TIMER;
     ipod.ide_base      = IPOD_PP5020_IDE_PRIMARY_BASE;
     ipod.ide_control   = IPOD_PP5020_IDE_PRIMARY_CONTROL;
     ipod.mem_base      = 0x10000000;
@@ -483,7 +483,7 @@ void ipod_init_hardware(void) {
     ipod.lcd_height    = 128;
     ipod.lcd_type      = 0;
     ipod.lcd_format    = IPOD_LCD_FORMAT_2BPP;
-    ipod.rtc           = IPOD_PP5020_RTC;
+    ipod.usec_timer    = IPOD_PP5020_USEC_TIMER;
     ipod.ide_base      = IPOD_PP5020_IDE_PRIMARY_BASE;
     ipod.ide_control   = IPOD_PP5020_IDE_PRIMARY_CONTROL;
     ipod.mem_base      = 0x10000000;
@@ -496,7 +496,7 @@ void ipod_init_hardware(void) {
     ipod.lcd_height    = 110;
     ipod.lcd_type      = 0;
     ipod.lcd_format    = IPOD_LCD_FORMAT_2BPP;
-    ipod.rtc           = IPOD_PP5020_RTC;
+    ipod.usec_timer    = IPOD_PP5020_USEC_TIMER;
     ipod.ide_base      = IPOD_PP5020_IDE_PRIMARY_BASE;
     ipod.ide_control   = IPOD_PP5020_IDE_PRIMARY_CONTROL;
     ipod.mem_base      = 0x10000000;
@@ -508,7 +508,7 @@ void ipod_init_hardware(void) {
     ipod.lcd_height    = 128;
     ipod.lcd_type      = 0;
     ipod.lcd_format    = IPOD_LCD_FORMAT_2BPP;
-    ipod.rtc           = IPOD_PP5002_RTC;
+    ipod.usec_timer    = IPOD_PP5002_USEC_TIMER;
     ipod.ide_base      = IPOD_PP5002_IDE_PRIMARY_BASE;
     ipod.ide_control   = IPOD_PP5002_IDE_PRIMARY_CONTROL;
     ipod.mem_base      = 0x28000000;
