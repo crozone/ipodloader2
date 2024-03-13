@@ -19,7 +19,7 @@ endif
 endif
 
 # Suffix with "d" for development version, "b" for beta version
-VERSION   = 2.8.1
+VERSION   = 2.9.0d
 
 ifdef GIT_COMMIT_HASH
 	VERSION   := "$(VERSION) $(GIT_COMMIT_HASH)"

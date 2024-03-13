@@ -125,19 +125,19 @@ static size_t fwfs_read(void *fsdata,void *ptr,size_t size,size_t nmemb,int fd) 
   off    = off % 512;
 
   if( off != 0 ) { /* Need to read a partial block at first */
-    ata_readblocks_uncached( gBlkBuf, block, 1 );
+    ata_readblocks( gBlkBuf, block, 1 );
     mlc_memcpy( ptr, gBlkBuf + off, 512 - off );
     read += 512 - off;
     block++;
   }
 
   while( (read+512) <= toRead ) {
-    ata_readblocks_uncached( (uint8*)ptr + read, block, 1 );
+    ata_readblocks( (uint8*)ptr + read, block, 1 );
 
     read  += 512;
     block++;
   }
-  ata_readblocks_uncached( gBlkBuf, block, 1 );
+  ata_readblocks( gBlkBuf, block, 1 );
   mlc_memcpy( (uint8*)ptr+read, gBlkBuf, toRead - read );
 
   read += (toRead - read);
@@ -194,7 +194,7 @@ void fwfs_newfs(uint8 part,uint32 offset) {
   if (!gBlkBuf) gBlkBuf = mlc_malloc (512);
 
   /* Verify that this is indeed a firmware partition */
-  ata_readblocks_uncached( gBlkBuf, offset,1 );
+  ata_readblocks( gBlkBuf, offset,1 );
   if( mlc_strncmp((void*)((uint8*)gBlkBuf+0x100),"]ih[",4) != 0 ) {
     return;
   }
@@ -219,7 +219,7 @@ void fwfs_newfs(uint8 part,uint32 offset) {
   fwfs.filehandle = (fwfs_file*)mlc_malloc( sizeof(fwfs_file) * MAX_HANDLES );
 
   fwfs.image = (fwfs_image_t*)mlc_malloc(512);
-  ata_readblocks_uncached( fwfs.image, block, 1 ); /* Reads the Bootloader image table */
+  ata_readblocks( fwfs.image, block, 1 ); /* Reads the Bootloader image table */
 
   fwfs.images = 0;
   for(i=0;i<MAX_IMAGES;i++) {

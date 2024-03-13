@@ -23,7 +23,7 @@ static void shutdown_loader (void)
   exit_irqs ();
 }
 
-static void standby ()
+static void standby (void)
 {
   shutdown_loader ();
   ipod_set_backlight (0);
@@ -33,7 +33,7 @@ static void standby ()
   pcf_standby_mode ();
 }
 
-static void spindown_disk ()
+static void spindown_disk (void)
 {
   config_t *conf = config_get();
   if (conf->ata_standby_code >= 0) {

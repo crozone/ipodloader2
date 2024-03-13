@@ -1,10 +1,18 @@
  /*
- * FAT32 code modified by Ryan Crosby (crozone) at 2020-08-15
- * - Rewrote Long File Name (LFN) implementation to fix several issues
- * - Actually try to handle UCS-2 characters
- * - Rewrote 8.3 implementation to fix off by 1 error
- * - Rewrote FAT type detection
- * - Lots of comments
+ * Basic read-only FAT filesystem driver for the ipodlinux bootloader
+ *
+ * Supports:
+ *  Read-only access
+ *  FAT16 and FAT32 with automatic type detection
+ *  Long Filename support (LFN)
+ * 
+ * Authors: Original Authors: Unknown
+ *          Ryan Crosby     ( ryan.crosby@live.com ) - LFN fixes, 8.3 fixes, UCS-2 fixes, FAT type detection rewrite, comments. 
+ * 
+ *     Short cuts make long delays.
+ *
+ *      -"The Fellowship of the Ring", J.R.R Tolkien
+ * 
  */
 
 #include "bootloader.h"
@@ -567,7 +575,11 @@ void fat32_newfs(uint8 part,uint32 offset) {
   }
 
   uint16 BPB_BytsPerSec = getLE16(bpb+11);
-  /* Validate BPB_BytsPerSec is a legal value */
+  /* Validate BPB_BytsPerSec is a legal value.*/
+  /* TODO: This should pretty much ALWAYS be 512 bytes
+   *       since even Advanced Format HDDs emulate 512 byte sectors.
+   *       Should we just always validate that it's 512?
+   */
   switch(BPB_BytsPerSec) {
     case 512:
     case 1024:
@@ -683,6 +695,8 @@ void fat32_newfs(uint8 part,uint32 offset) {
   if( clusterBuffer == NULL ) {
     clusterBuffer = (uint8*)mlc_malloc( fat.bytes_per_cluster );
   }
+
+  /* TODO: MyFS Should be malloc'd every time! Otherwise it gets overwritten by any other FAT parititon */
 
   myfs.open    = fat32_open;
   myfs.close   = fat32_close;
