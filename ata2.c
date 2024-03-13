@@ -292,8 +292,8 @@ static void ata_find_transfermode(void) {
   spinwait_drive_busy();
   uint8 status = pio_inbyte( REG_STATUS );
   if(status & STATUS_ERR) {
-    uint8 error = pio_inbyte( REG_ERROR );
 #ifdef DEBUG
+    uint8 error = pio_inbyte( REG_ERROR );
     mlc_printf("Error on odd sector read! 80GB 5.5G?");
     mlc_printf("STATUS: %02hhX\n", status);
     mlc_printf("ERROR: %02hhX\n", error);
