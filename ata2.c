@@ -76,7 +76,7 @@ static inline void clear_cache(void);
 static inline int create_cache_entry(uint32 sector);
 static inline int find_cache_entry(uint32 sector);
 static inline inline void *get_cache_entry_buffer(int cacheindex);
-static void ata_send_read_command(uint32 lba, uint32 count);
+static void ata_send_read_command(uint32 lba, uint16 count);
 static uint32 ata_transfer_block(void *ptr, uint32 count);
 static uint32 ata_receive_read_data(void *dst, uint32 count);
 static int ata_readblock2(void *dst, uint32 sector, int useCache);
@@ -442,8 +442,6 @@ void ata_identify(void) {
  * lba:       The Logical Block Adddress to begin reading blocks from.
  * count:     The number of logical blocks to read.
 */
-// TODO: Propagate the errors up as return codes using constants,
-//       instead of throwing fatal error internally.
 static void ata_send_read_command(uint32 lba, uint16 count) {
   last_sector = lba;
   last_sector_count = count;
