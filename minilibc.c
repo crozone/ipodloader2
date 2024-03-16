@@ -600,24 +600,16 @@ char *mlc_strrchr(const char *s,int c) {
 }
 
 void mlc_delay_ms (long time_in_ms) {
-  #if defined (__arm__)
-    // we only need the delay on the iPod, not when debugging on a PC
-    if (time_in_ms > 10000) time_in_ms = 10000; // 10s should always be more than enough!
-    long start = timer_get_current ();
-    do {
-      // pause
-    } while (!timer_passed (start, time_in_ms*1000));
-  #endif
+	mlc_delay_us(time_in_ms * 1000);
 }
 
-void mlc_delay_us (long time_in_micro_s) {
+inline void mlc_delay_us (long time_in_micro_s) {
   #if defined (__arm__)
     // we only need the delay on the iPod, not when debugging on a PC
-    if (time_in_micro_s > 1000000) time_in_micro_s = 1000000; // 1s should always be more than enough!
     long start = timer_get_current ();
-    do {
-      // pause
-    } while (!timer_passed (start, time_in_micro_s));
+	// Spinwait until time has passed.
+	// Use the volatile asm to prevent code from being optimised out.
+	while(!timer_passed (start, time_in_micro_s)) __asm__ __volatile__("");
   #endif
 }
 
