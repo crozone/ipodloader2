@@ -86,6 +86,16 @@
  * INTRQ signal by a selected device. When the Device Control register is written, both devices respond to the
  * write regardless of which device is selected. When the SRST bit is set to one, both devices shall perform the
  * software reset protocol. The device shall respond to the SRST bit when in the SLEEP mode.
+ * 
+ * - HOB (high order byte) is defined by the 48-bit Address feature set (see 6.20). A write to any Command
+ *     Block register shall clear the HOB bit to zero.
+ * - Bits 6 through 3 are reserved.
+ * - SRST is the host software reset bit (see 9.2).
+ * - nIEN is the enable bit for the device Assertion of INTRQ to the host. When the nIEN bit is cleared to
+ *     zero, and the device is selected, INTRQ shall be enabled through a tri-state buffer and shall be
+ *     asserted or negated by the device as appropriate. When the nIEN bit is set to one, or the device is not
+ *     selected, the INTRQ signal shall be in a high impedance state.
+ * - Bit 0 shall be cleared to zero.
 */
 #define REG_CONTROL    0x8
 
@@ -111,15 +121,24 @@
 
 #define REG_DA          0x9
 
-/* nIEN: Negated Interrupt Enable bit in Device Control register.
+
+/*
+ * Device Control register flags
+ */
+
+/* nIEN: Negated Interrupt Enable bit in Device Control register. (bit 1)
  * Sets device Assertion of INTRQ to the host.
  * When the nIEN bit is cleared to zero, and the device is selected, INTRQ shall be enabled
  * When the nIEN bit is set to one, or the device is not selected, the INTRQ signal is disabled
  */
-#define CONTROL_NIEN    0x2
+#define CONTROL_NIEN    0x02
 
 /* SRST: Software Reset bit in Device Control register */
-#define CONTROL_SRST    0x4
+#define CONTROL_SRST    0x04
+
+/* HOB: High Order Byte (bit 7). Defined by the 48-bit Address feature set (see 6.20).
+ * A write to any Command Block register shall clear the HOB bit to zero.*/
+#define CONTROL_HOB     0x80
 
 // all commands: see include/linux/hdreg.h
 
