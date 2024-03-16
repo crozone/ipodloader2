@@ -82,21 +82,23 @@ static uint32 ata_receive_read_data(void *dst, uint32 count);
 static int ata_readblock2(void *dst, uint32 sector, int useCache);
 
 
-void pio_outbyte(unsigned int addr, unsigned char data) {
+inline static void pio_outbyte(unsigned int addr, unsigned char data) {
   outb( data, pio_reg_addrs[ addr ] );
 }
 
-void pio_outword(unsigned int addr, unsigned int data) {
+inline static void pio_outword(unsigned int addr, unsigned int data) {
   outl( data, pio_reg_addrs[ addr ] );
 }
 
-volatile unsigned char pio_inbyte( unsigned int addr ) {
+inline static volatile unsigned char pio_inbyte( unsigned int addr ) {
   return( inl( pio_reg_addrs[ addr ] ) );
 }
-volatile unsigned short pio_inword( unsigned int addr ) {
+
+inline static volatile unsigned short pio_inword( unsigned int addr ) {
   return( inl( pio_reg_addrs[ addr ] ) );
 }
-volatile unsigned int pio_indword( unsigned int addr ) {
+
+inline static volatile unsigned int pio_indword( unsigned int addr ) {
   return( inl( pio_reg_addrs[ addr ] ) );
 }
 

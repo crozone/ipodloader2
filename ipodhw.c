@@ -93,15 +93,13 @@ static void ipod_set_sysinfo(void) {
 }
 
 /* get current usec counter */
-unsigned long timer_get_current(void) {
+inline unsigned long timer_get_current(void) {
   return inl(ipod.usec_timer);
 }
 
 /* check if number of useconds has passed */
-int timer_passed(unsigned long clock_start, int usecs) {
-  unsigned long clock;
-  clock = inl(ipod.usec_timer);
-  return (clock - clock_start) >= usecs;
+inline int timer_passed(unsigned long clock_start, int usecs) {
+  return (timer_get_current() - clock_start) >= usecs;
 }
 
 void ipod_reboot ()
