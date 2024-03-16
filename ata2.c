@@ -119,7 +119,6 @@ inline static void ata_command(uint8 cmd) {
 }
 
 uint32 ata_init(void) {
-  uint8   tmp[2];
   ipod_t *ipod;
 
   ipod = ipod_get_hwinfo();
@@ -182,9 +181,12 @@ uint32 ata_init(void) {
   pio_outbyte( REG_SECT      , 0x55 );
   pio_outbyte( REG_SECT_COUNT, 0x55 );
   pio_outbyte( REG_SECT      , 0xAA );
-  tmp[0] = pio_inbyte( REG_SECT_COUNT );
-  tmp[1] = pio_inbyte( REG_SECT );
-  if( (tmp[0] != 0x55) || (tmp[1] != 0xAA) ) return(1);
+
+  if( (pio_inbyte( REG_SECT_COUNT ) != 0x55)
+    || (pio_inbyte( REG_SECT ) != 0xAA) )
+    {
+      return(1);
+    }
 
   /*
    * Okay, we're sure there's an ATA2 controller and device, so
