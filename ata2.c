@@ -200,6 +200,7 @@ uint32 ata_init(void) {
   // cachetick maps each index of the cachedata array to its age, for finding LRU
   cachetick  = (uint32*)mlc_malloc(CACHE_NUMBLOCKS * sizeof(uint32));
   
+  /* Initialize cache */
   clear_cache();
 
   return(0);
@@ -270,55 +271,75 @@ void ata_standby(int cmd_variation)
   /* Read the status register to clear any pending interrupts */
   pio_inbyte( REG_STATUS );
 
-  // The linux kernel notes mention that some drives might cause an interrupt when put to standby mode.
-  // This interrupt is then to be ignored.
+  /*
+   * The linux kernel notes mention that some drives might cause an interrupt when put to standby mode.
+   * This interrupt is then to be ignored.
+   */
   ata_clear_intr();
+}
+
+void ata_sleep() {
+  ata_command( COMMAND_SLEEP );
+  DELAY400NS; DELAY400NS;
+  spinwait_drive_busy();
+  DELAY400NS; DELAY400NS;
+  /*
+   * When the device is ready to ender sleep mode, it will set an interrupt and wait.
+   * It will then wait until we clear that interrupt by reading the STATUS register
+   * to actually enter sleep mode.
+   */
+  pio_inbyte( REG_STATUS );
+
+  /* The device should now be asleep, and will not respond until a DEVICE_RESET command is sent. */
 }
 
 /*
  * Detect what type of drive we are dealing with and set blks_per_phys_sector appropriately.
  * The handled cases are:
  * - 512 byte physical sectors. This is the majority of drives (usually they're 512 physical, or 4K physical with 512e emulation)
- * - 2048 byte physical sectors, 512 byte logical sectors. The only known drive is the iPod 5.5G 80GB hard drive.
+ * - 1024(?) byte physical sectors, 512 byte logical sectors. The only known drive is the iPod 5.5G 80GB hard drive.
  *
  * The 80GB HDD still returns 512 byte logical sectors for each LBA, but
- * disallows reading from unaligned LBAs, so reading odd numbered LBAs will fail.
- * In this case, two 512 byte sectors must be read at once, from a 2048 byte physical sector aligned boundary.
- * Basically, round the LBA down to the nearest even number and then read two blocks, always.
+ * disallows reading from unaligned LBAs, and disallows reading strides that are not a multiple of 2 sectors (1024 bytes).
  */
 static void ata_find_transfermode(void) {
   uint32 bytesread;
-
   /* 
-   * Read even sector, this should always work.
+   * Read a multiple of two sectors. This should always work.
    * The count of bytes returned will reveal the logical sector size.
    */
-  ata_send_read_command(0, 1);
+  ata_send_read_command(0, 2);
+  /* Read as many blocks back as the drive will give us (capping at 64 for sanity)*/
   bytesread = ata_transfer_block(NULL, 64);
   spinwait_drive_busy();
   bug_on_ata_error();
-  mlc_printf("Logical sector size: %lu\n", bytesread);
 
-  if(bytesread != BLOCK_SIZE) {
-    mlc_printf("Unexpected logical sector size: %lu\n", bytesread);
+  uint32 sector_size = bytesread / 2;
+
+  mlc_printf("Logical sector size: %lu\n", sector_size);
+
+  if(sector_size != BLOCK_SIZE) {
+    mlc_printf("Unexpected logical sector size: %lu\n", sector_size);
     mlc_show_fatal_error ();
   }
 
   /* 
-   * Read odd sector, this is expected to fail on the 80GB iPod 5.5G HDD.
+   * Read an odd sector. This is expected to fail on the 80GB iPod 5.5G HDD.
+   * Note: This will also fail if you attempt to read 1 sector on an even boundary,
+   * so reading (0, 1) would also work for this test.
    */
   ata_send_read_command(1, 1);
-  bytesread = ata_transfer_block(NULL, 1);
+  bytesread = ata_transfer_block(NULL, 2);
   spinwait_drive_busy();
   uint8 status = pio_inbyte( REG_STATUS );
   if(status & STATUS_ERR) {
+    mlc_printf("iPod 80GB detected.\n");
 #ifdef DEBUG
     uint8 error = pio_inbyte( REG_ERROR );
-    mlc_printf("Error on odd sector read! 80GB 5.5G?");
     mlc_printf("STATUS: %02hhX\n", status);
     mlc_printf("ERROR: %02hhX\n", error);
 #endif
-    blks_per_phys_sector = 4;
+    blks_per_phys_sector = 2;
   }
   else {
     blks_per_phys_sector = 1;
