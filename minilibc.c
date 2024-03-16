@@ -60,6 +60,7 @@ mod:	N	near ptr				DONE
 #include "minilibc.h"
 #include "interrupts.h"
 #include "keypad.h"
+#include "ata2.h"
 
 /* flags used in processing format string */
 #define	PR_LJ	0x01	/* left justify */
@@ -706,11 +707,18 @@ void mlc_show_fatal_error () {
   mlc_set_output_options (0, 0);
   mlc_printf ("\nHold Menu & %s to restart\n", ((ipod_get_hwinfo()->hw_rev < 0x40000) ? "Play" : "Select"));
   ipod_set_backlight (1);
-  mlc_delay_ms (10000); // leave light on for 10s
+
+  /* Spin down the HDD, since we might be here for a while.
+   * This also prevents the HDD from doing a power-off "retract"
+   * when the user resets the iPod, since it's already safely asleep.
+   */
+  ata_sleep();
+
+  mlc_delay_ms (5 * 60 * 1000); // leave backlight on for 5m
   ipod_set_backlight (0);
+  mlc_delay_ms (2 * 1000);
+
   exit_irqs ();
-  // wait for one minute, then put iPod to sleep
-  for (int start = timer_get_current(); timer_passed (start, TIMER_MINUTE); ) {}
   pcf_standby_mode ();
 }
 
