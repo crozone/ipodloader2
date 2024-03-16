@@ -57,6 +57,11 @@ static uint8 blks_per_phys_sector = 1;
 /* Drive supports LBA 48? */
 static uint8 drive_lba48 = 0;
 
+/* These track the last command sent, so that if an error occurs the details can be printed. */
+static uint8 last_command = 0;
+static uint32 last_sector = 0;
+static uint16 last_sector_count = 0;
+
 static struct {
   uint16 chs[3];
   uint32 sectors;
@@ -93,6 +98,11 @@ volatile unsigned short pio_inword( unsigned int addr ) {
 }
 volatile unsigned int pio_indword( unsigned int addr ) {
   return( inl( pio_reg_addrs[ addr ] ) );
+}
+
+inline static void ata_command(uint8 cmd) {
+  last_command = cmd;
+  pio_outbyte( REG_COMMAND, cmd );
 }
 
 #define DELAY400NS { \
@@ -221,9 +231,15 @@ static inline void bug_on_ata_error(void) {
   if(status & STATUS_ERR) {
     uint8 error = pio_inbyte( REG_ERROR );
     mlc_printf("\nATA2 IO Error\n");
-    mlc_printf("STATUS: %02hhX\n", status);
+    mlc_printf("STATUS: %02hhX, ", status);
     mlc_printf("ERROR: %02hhX\n", error);
-    // mlc_printf("dst: %lx, blk: %ld\n", dst, sector);
+    mlc_printf("LAST COMMAND: %02hhX\n", last_command);
+    if(last_command == COMMAND_READ_SECTORS
+      || last_command == COMMAND_READ_SECTORS_EXT) {
+      mlc_printf("SECTOR: %d, ", last_sector);
+      mlc_printf("COUNT: %d\n", last_sector_count);
+    }
+
     mlc_show_fatal_error ();
     return;
   }
@@ -241,7 +257,7 @@ void ata_standby(int cmd_variation)
   if (cmd_variation == 2) cmd = 0x96;
   if (cmd_variation == 3) cmd = 0xE0;
   if (cmd_variation == 4) cmd = 0xE2;
-  pio_outbyte( REG_COMMAND, cmd );
+  ata_command(cmd);
   DELAY400NS;
 
   /* Wait until drive is not busy */
@@ -421,7 +437,10 @@ void ata_identify(void) {
 */
 // TODO: Propagate the errors up as return codes using constants,
 //       instead of throwing fatal error internally.
-static void ata_send_read_command(uint32 lba, uint32 count) {
+static void ata_send_read_command(uint32 lba, uint16 count) {
+  last_sector = lba;
+  last_sector_count = count;
+
  /*
   * REG_DEVICEHEAD bits are:
   *
@@ -463,20 +482,14 @@ static void ata_send_read_command(uint32 lba, uint32 count) {
   pio_outbyte( REG_LBA1         , (lba   & 0x0000FF00) >> 8  );
   pio_outbyte( REG_LBA2         , (lba   & 0x00FF0000) >> 16 );
 
-  uint8 readcommand;
+  /* Send read command */
   if (drive_lba48) {
-    readcommand = COMMAND_READ_SECTORS_EXT;
+    ata_command( COMMAND_READ_SECTORS_EXT );
   }
   else {
-    readcommand = COMMAND_READ_SECTORS;
+    ata_command( COMMAND_READ_SECTORS );
   }
 
-  /* Send read command */
-  pio_outbyte( REG_COMMAND, readcommand );
-
-  DELAY400NS;  DELAY400NS;
-  /* Spinwait until drive is not busy */
-  spinwait_drive_busy();
   DELAY400NS;  DELAY400NS;
 }
 
