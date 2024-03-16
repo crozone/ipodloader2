@@ -64,7 +64,7 @@ static uint16 last_sector_count = 0;
 
 static struct {
   uint16 chs[3];
-  uint32 sectors;
+  uint64 sectors;
 } ATAdev;
 
 /* Forward declaration of static functions (not exported via header file) */
@@ -327,7 +327,6 @@ static void ata_find_transfermode(void) {
  * Does some extended identification of the ATA device
  */
 void ata_identify(void) {
-  uint8  status,c;
   uint16 *buff = (uint16*)mlc_malloc(512); // TODO: Remove unnecessary allocation
 
   pio_outbyte( REG_DEVICEHEAD, 0xA0 | DEVICE_0 );
@@ -338,90 +337,98 @@ void ata_identify(void) {
   pio_outbyte( REG_CYL_LOW   , 0 );
   pio_outbyte( REG_CYL_HIGH  , 0 );
 
-  pio_outbyte( REG_COMMAND, COMMAND_IDENTIFY_DEVICE );
+  ata_command( COMMAND_IDENTIFY_DEVICE );
   DELAY400NS;
 
-  /* Spin until drive is not busy */
-  spinwait_drive_busy();
+  ata_receive_read_data(buff, 1);
 
-  status = pio_inbyte( REG_STATUS );
-  if( status & STATUS_DRQ ) {
-    ata_transfer_block( buff, 1 );
-
-    /*
-     * Words 60..61 contain a value that is one greater than the maximum user addressable LBA.
-     * The maximum value that shall be placed in this field is 0FFF_FFFFh.
-     * If words 60..61 contain 0FFF_FFFFh and the device has user addressable LBAs greater than or equal to 0FFF_FFFFh,
-     * then the ACCESSIBLECAPACITY field (see 9.11.4.2) contains the total number of user addressable LBAs (see 4.1).
-     */
-    ATAdev.sectors = (buff[61] << 16) + buff[60];
-
-    if(ATAdev.sectors == 0x0FFFFFFF) {
-        /* Enable LBA48 mode, since the drive has more than the max LBAs of LBA28 */
-         drive_lba48 = 1;
-
-        /*
-         * TODO: Implement the log code described below.
-         *
-         * TODO: Maybe we should always try to read these logs (instead of just on large LBA drives)
-         * because they also tell us LOGICAL SECTOR SIZE. Doing this would let us skip the IDENTIFY DEVICE
-         * and only use it as a fallback.
-         */
-
-        /*
-         * To get the full details of the device, including the sector count, physical sector size,
-         * and other capabilities, we need to use the General Purpose Logging (GPL) feature set.
-         *
-         * Reference: http://www.t13.org/Documents/UploadedDocuments/docs2016/di529r14-ATAATAPI_Command_Set_-_4.pdf
-         *
-         * To read a log, use 7.22 READ LOG EXT - 2Fh, PIO Data-In
-         * This takes a LOG ADDRESS, PAGE NUMBER, and PAGE COUNT.
-         *
-         * 1. Read Page 00h of the 9.11 IDENTIFY DEVICE data log (Log Address 30h)
-         *
-         * 2. Check page 00h 9.11.2 List of Supported IDENTIFY DEVICE data log pages (Page 00h)
-         *    to see if Page 02h,  9.11.4 Capacity (page 02) is supported.
-         *
-         * 3. If supported, read 9.11.4 Capacity (page 02) page
-         *
-         * 4. Extract: ACCESSIBLE CAPACITY field (see 9.11.4.2)
-         *             LOGICAL SECTOR SIZE SUPPORTED bit, and if set,
-         *             LOGICAL SECTOR SIZE
-         *
-         * Note: I think LOGICAL SECTOR SIZE will remove the need to do the ata_find_transfermode(),
-         *       since it tells us the physical sector alignment we need to adhere to.
-         *       We can also just assume the COMMAND_READ_SECTORS_EXT command and use a sector count > 1.
-         *       This will allow us to generalize the 5.5g 80GB read solution to work for all drives.
-         */
+  mlc_printf("HDD Model: ");
+  /* Model Number*/
+  for(int i=27; i < 47; i++) {
+    if( buff[i] != ((' ' << 8) + ' ') ) {
+      mlc_printf("%c%c", buff[i]>>8, buff[i]&0xFF);
     }
+  }
+  mlc_printf("\n");
 
-    ATAdev.chs[0]  = buff[1];
-    ATAdev.chs[1]  = buff[3];
-    ATAdev.chs[2]  = buff[6];
-
-    mlc_printf("ATA Device\n");
-
-    if(drive_lba48) {
-      /* Until we implement reading ACCESSIBLE CAPACITY, the best we can do is say this drive is >128GB */
-      mlc_printf("Size: >%uMB (%u/%u/%u)\n", ATAdev.sectors/BLOCKS_PER_MB, ATAdev.chs[0], ATAdev.chs[1], ATAdev.chs[2]);
-      mlc_printf("LBA48 addressing\n");
+  mlc_printf("HDD Serial: ");
+  /* Serial Number*/
+  for(int i=10; i < 20; i++) {
+    if( buff[i] != ((' ' << 8) + ' ') ) {
+      mlc_printf("%c%c", buff[i]>>8, buff[i]&0xFF);
     }
-    else {
-      mlc_printf("Size: %uMB (%u/%u/%u)\n", ATAdev.sectors/BLOCKS_PER_MB, ATAdev.chs[0], ATAdev.chs[1], ATAdev.chs[2]);
-      mlc_printf("LBA28 addressing\n");
-    }
+  }
+  mlc_printf("\n");
 
-    mlc_printf("HDDid: ");
-    for(c=27;c<47;c++) {
-      if( buff[c] != ((' ' << 8) + ' ') ) {
-        mlc_printf("%c%c", buff[c]>>8, buff[c]&0xFF);
-      }
-    }
-    mlc_printf("\n");
+  ATAdev.chs[0]  = buff[1];
+  ATAdev.chs[1]  = buff[3];
+  ATAdev.chs[2]  = buff[6];
+
+  /*
+   * Word 83 is the command set supported flags.
+   * Bit 10 = LBA48 supported
+   * 
+   * Note form the ATA-ATAPI-6 spec:
+   * The contents of words (61:60) and (103:100) shall not be used to determine if 48-bit addressing is
+   * supported. IDENTIFY DEVICE bit 10 word 83 indicates support for 48-bit addressing. 
+   * */
+  drive_lba48 = (buff[83] & (1 << 10)) > 0;
+
+  if(drive_lba48) {
+    mlc_printf("LBA48\n");
+   /*
+    * Words (103-100) shall contain the value one greater than the total number of user-addressable
+    * sectors in 48-bit addressing and shall not exceed FFFFFFFFFFFFFFFFh.
+    */
+    ATAdev.sectors = (
+          ((uint64)buff[103] << 48)
+        | ((uint64)buff[102] << 32)
+        | ((uint64)buff[101] << 16)
+        | ((uint64)buff[100] << 0)
+        ) - 1;
+
+    uint64 size_mb = ATAdev.sectors/BLOCKS_PER_MB;
+    mlc_printf("Size: %lu.%luGB\n", (uint32)(size_mb / 1024), (uint32)((size_mb % 1024) / 10));
   }
   else {
-    mlc_printf("DRQ not set..\n");
+    mlc_printf("LBA28\n");
+
+   /*
+    * Words (61:60) shall contain the value one greater than the total number of user-addressable
+    * sectors in 28-bit addressing and shall not exceed 0FFFFFFFh. The content of words (61:60) shall
+    * be greater than or equal to one and less than or equal to 268,435,455.
+    */
+    ATAdev.sectors = (
+        ((uint64)buff[61] << 16)
+      | ((uint64)buff[60] << 0)
+      ) - 1;
+
+    uint64 size_mb = ATAdev.sectors/BLOCKS_PER_MB;
+    mlc_printf("Size: %lu.%luGB (%u/%u/%u)\n",
+      (uint32)(size_mb / 1024), (uint32)((size_mb % 1024) / 10),
+      ATAdev.chs[0], ATAdev.chs[1], ATAdev.chs[2]);
   }
+
+ /*
+  * To get the full details of the device, including the physical sector size
+  * and other capabilities, we need to use the General Purpose Logging (GPL) feature set.
+  *
+  * Reference: http://www.t13.org/Documents/UploadedDocuments/docs2016/di529r14-ATAATAPI_Command_Set_-_4.pdf
+  *
+  * To read a log, use 7.22 READ LOG EXT - 2Fh, PIO Data-In
+  * This takes a LOG ADDRESS, PAGE NUMBER, and PAGE COUNT.
+  *
+  * 1. Read Page 00h of the 9.11 IDENTIFY DEVICE data log (Log Address 30h)
+  *
+  * 2. Check page 00h 9.11.2 List of Supported IDENTIFY DEVICE data log pages (Page 00h)
+  *    to see if Page 02h,  9.11.4 Capacity (page 02) is supported.
+  *
+  * 3. If supported, read 9.11.4 Capacity (page 02) page
+  *
+  * 4. Extract: LOGICAL SECTOR SIZE SUPPORTED bit, and if set,
+  *             LOGICAL SECTOR SIZE
+  * TODO: See if there are any other values that tell us alignment or physical sector size information
+  */
 
   /*
    * Find drive parameters (physical and logical sector sizes).
