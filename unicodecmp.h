@@ -490,10 +490,10 @@ static int32 FastUnicodeCompare ( const uint16be* str1, int length1,
  * While is the 0-char in a file name is an unlikely case, it is just an
  * example for the other possible chars above in the table that need
  * remapping this way. More likely is a case where an "a" gets on the same
- * value as a "Š", or something like that.
+ * value as a "ï¿½", or something like that.
  */
 {
-    register uint16     c1,c2;
+    uint16     c1,c2;
 
     #if SHORT_TABLES
         // This is slower but uses smaller tables
