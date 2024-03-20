@@ -38,6 +38,9 @@ OBJCOPY   = $(CROSS)objcopy
 
 OBJFILES = startup.o loader.o fb.o ipodhw.o console.o minilibc.o ata2.o vfs.o fat32.o ext2.o fwfs.o keypad.o menu.o config.o macpartitions.o interrupts.o interrupt-entry.o
 
+debug: MYCFLAGS += -DDEBUG
+debug: all
+
 all: loader.bin $(OBJFILES) Makefile
 #	@echo "Building firmware image"
 #	@./make_fw -g 4g -o my_sw.bin -i apple_os.bin $<
