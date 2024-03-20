@@ -135,7 +135,6 @@ void vfs_registerfs( filesystem *newfs ) {
 
 void vfs_init( void) {
   uint32 i;
-  uint8 sectormultiplier;
 
   fsCnt = 0;
   
@@ -147,9 +146,18 @@ void vfs_init( void) {
 
   ata_readblocks(iPodMBR, 0, 1);
 
-  /* Sector multiplier is for 5.5G 80GB, which has 2048b sectors */
-  /* TODO( ryan.crosby@live.com ) I think this should always be 1, but need to double check on an original 80GB HDD */
-  sectormultiplier = 1; //ata_get_blks_per_phys_sector();
+  /*
+   * When plugged in via USB or Firewire, the iPod 5.5G presents the drive as having 2048 byte sectors to the host.
+   * This can cause the host to format the drive with the assumption that the sector size is 2048 bytes, when it's really 512 bytes.
+   * 
+   * This doesn't affect FAT32, since FAT always uses fixed size 512 byte blocks.
+   * 
+   * It *does* affect the MBR, which specifies partition offsets in sectors.
+   * Changing the sector size invalidates the MBR parition table, and we can't recover the original sector size used.
+   * 
+   * So, if we assume the MBR was created with 512 byte sectors, it might actually be 2048 bytes and we'll find nothing at the offsets.
+   * We don't really know what sector size was used without simply peeking for valid partitions at the locations specified.
+   */
 
   for(i=0; i < MAX_FILES; i++) vfs_handle[i].fd = -1;
 
@@ -160,6 +168,10 @@ void vfs_init( void) {
     /* this is a WinPod with a DOS/ext2 partition scheme */
     mlc_printf("Detected WinPod MBR\n");
 
+    /* Note( ryan.crosby@live.com ):
+     * Apparently this is some hint of sector size, stored in the MBR.
+     * I'm not sure what it's supposed to be, and can't find anything about it in any official specs.
+     */
     uint32 logBlkMultiplier = (iPodMBR->code[12] | iPodMBR->code[11]) / 2; // we usually find 02 00, 00 02 or 00 08 here
     if((logBlkMultiplier < 1) | (logBlkMultiplier > 4)) logBlkMultiplier = 1;
 	
@@ -173,22 +185,16 @@ void vfs_init( void) {
       offset = iPodMBR->partition_table[i].lba_offset;
       validoffset = 0;
 
-      /*
-       * Now find a valid partition table. This is actually a PITA since the 5.5G
-       * does not necessarily have identical MBRs on every machine. On some the
-       * logBlkMultiplier is 4, on some it is 1, while it should be 4. There's no
-       * other way than just peeking for valid partitions.
-       */
       switch(type) {
         case 0x00:
           if(i == 0) {
             /* Technically this is an "Empty partition entry", but Apple uses it for the proprietary firmware partition at partition 0 */
-            ata_readblocks(fs_header, offset*sectormultiplier, 1);
+            ata_readblocks(fs_header, offset, 1);
             if( mlc_strncmp((void*)(fs_header->fwfsmagic),"]ih[", 4) ) {
-              offset = offset * sectormultiplier;
+              offset = offset;
               validoffset = 1;
             }
-            else if((logBlkMultiplier != 1) && (logBlkMultiplier != sectormultiplier)) {
+            else if(logBlkMultiplier > 1) {
               ata_readblocks(fs_header, offset*logBlkMultiplier, 1);
               if( mlc_strncmp((void*)(fs_header->fwfsmagic),"]ih[", 4) )
               {
@@ -214,12 +220,12 @@ void vfs_init( void) {
           break;
         case 0x83:
           /* EXT2 partition */
-          ata_readblocks(fs_header, offset*sectormultiplier + 2, 1);
+          ata_readblocks(fs_header, offset + 2, 1);
           if(fs_header->ext2magic == 0xEF53) {
-            offset = offset*sectormultiplier;
+            offset = offset;
             validoffset = 1;
           }
-          else if((logBlkMultiplier != 1) && (logBlkMultiplier != sectormultiplier)) {
+          else if(logBlkMultiplier > 1) {
             ata_readblocks(fs_header, offset*logBlkMultiplier + 2, 1);
             if(fs_header->ext2magic == 0xEF53) {
               offset = offset*logBlkMultiplier;
@@ -240,12 +246,12 @@ void vfs_init( void) {
           break;
         case 0xB:
           /* FAT partition */
-          ata_readblocks(fs_header, offset*sectormultiplier, 1);
+          ata_readblocks(fs_header, offset, 1);
           if(fs_header->fat32magic == 0xAA55) {
-            offset = offset*sectormultiplier;
+            offset = offset;
             validoffset = 1;
           }
-          else if((logBlkMultiplier != 1) && (logBlkMultiplier != sectormultiplier)) {
+          else if(logBlkMultiplier > 1) {
             ata_readblocks(fs_header, offset*logBlkMultiplier, 1);
             if(fs_header->fat32magic == 0xAA55) {
               offset = offset*logBlkMultiplier;
@@ -277,7 +283,6 @@ void vfs_init( void) {
       /* No valid partition was found */
       mlc_printf("No valid paritions found!\n");
       mlc_show_critical_error();
-      return;
     }
   }
   /* TODO: Why is this ER and not PM (for Apple Parition Map)? What is this? */
@@ -295,6 +300,9 @@ void vfs_init( void) {
     mlc_hexdump (iPodMBR, 32);
 
     mlc_show_critical_error();
-    return;
   }
+
+  #if DEBUG
+    mlc_show_critical_error();
+  #endif
 }
