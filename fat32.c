@@ -75,7 +75,7 @@ static void readToSectorBuf (uint32 sector)
  * Get a 32 bit unsigned integer from the given array,
  * treating byte order as little-endian.
  */
-static uint32 getLE32 (uint8* p) {
+inline static uint32 getLE32 (uint8* p) {
   return p[0] | (p[1] << 8) | (p[2] << 16) | (p[3] << 24);
 }
 
@@ -83,7 +83,7 @@ static uint32 getLE32 (uint8* p) {
  * Get a 16 bit unsigned integer from the given array,
  * treating byte order as little-endian.
  */
-static uint16 getLE16 (uint8* p) {
+inline static uint16 getLE16 (uint8* p) {
   return p[0] | (p[1] << 8);
 }
 
@@ -321,7 +321,7 @@ static int getNextCompleteEntry (dir_state *dstate, char* *shortnameOut, char* *
         }
 
         if(namegood) {
-          char *ln = longname + offset;
+          char *ln = &longname[offset];
           int invalid_chars =
               ucs2cpy (&ln[0], slot->name0_4, 5)
             + ucs2cpy (&ln[5], slot->name5_10, 6)
