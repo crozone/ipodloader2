@@ -12,6 +12,5 @@ int    ata_readblocks(void *dst,uint32 sector,uint32 count);	// these reads get 
 int    ata_readblocks_uncached(void *dst,uint32 sector,uint32 count);	// these reads are uncached
 void   ata_standby (int cmd_variation);
 void   ata_sleep();
-uint8 ata_get_blks_per_phys_sector(void);
 
 #endif

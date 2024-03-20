@@ -46,24 +46,28 @@ static uint32 *cacheaddr;
 static uint32 *cachetick;
 static uint32  cacheticks;
 
-/*
- * Drive configuration
- *
- * The number of 512 byte logical blocks that fit within a physical
- * on-disk sector of the device.
- * Reads must be aligned to physical sectors, so this is critical.
- */
-static uint8 blks_per_phys_sector = 1;
-/* Drive supports LBA 48? */
-static uint8 drive_lba48 = 0;
-
 /* These track the last command sent, so that if an error occurs the details can be printed. */
 static uint8 last_command = 0;
 static uint32 last_sector = 0;
 static uint16 last_sector_count = 0;
 
+/*
+ * Drive configuration
+ */
 static struct {
+  /* Drive CHS geometry */
   uint16 chs[3];
+
+  /* Non-zero if LBA48 is supported */
+  uint8 lba48;
+
+ /*
+ * The log2 of the number of 512 byte logical blocks that fit within a physical
+ * on-disk sector of the device.
+ */
+  uint8 alignment_log2;
+
+  /* The total number of sectors the device has */
   uint64 sectors;
 } ATAdev;
 
@@ -71,7 +75,6 @@ static struct {
 static inline void spinwait_drive_busy(void);
 static inline void bug_on_ata_error(void);
 static void ata_clear_intr(void);
-static void ata_find_transfermode(void);
 static inline void clear_cache(void);
 static inline int create_cache_entry(uint32 sector);
 static inline int find_cache_entry(uint32 sector);
@@ -294,65 +297,52 @@ void ata_sleep() {
 }
 
 /*
- * Detect what type of drive we are dealing with and set blks_per_phys_sector appropriately.
- * The handled cases are:
- * - 512 byte physical sectors. This is the majority of drives (usually they're 512 physical, or 4K physical with 512e emulation)
- * - 1024(?) byte physical sectors, 512 byte logical sectors. The only known drive is the iPod 5.5G 80GB hard drive.
+ * Print fixed size uint16 big-endian ASCII string.
+*/
+static void print_str_be16(uint16 *buff, size_t length) {
+  /* Walk backwards from end of string to trim whitespace */
+  while((length > 0) && (buff[--length] == ((' ' << 8) + ' ')));
+
+  /* Print each word as big endian (this is why we can't just reinterpret buff as a uint8*) */
+  for(int i = 0; i < length; i++) {
+      mlc_printf("%c%c", buff[i] >> 8, buff[i] & 0xFF);
+  }
+}
+
+/*
+ * Compares a standard C string to a uint16 big-endian ASCII string.
  *
- * The 80GB HDD still returns 512 byte logical sectors for each LBA, but
- * disallows reading from unaligned LBAs, and disallows reading strides that are not a multiple of 2 sectors (1024 bytes).
+ * str1: First string as a standard C string.
+ * str1_start: The offset in characters into which str1 should start to be compared.
+ * str2: Second string as a uint16 big-endian ASCII string.
+ * str2_start: The offset in characters into which str2 should start to be compared.
+ * length: The length in characters which to compare str1 and str2.
  */
-static void ata_find_transfermode(void) {
-  uint32 bytesread;
-  /* 
-   * Read a multiple of two sectors. This should always work.
-   * The count of bytes returned will reveal the logical sector size.
-   */
-  ata_send_read_command(0, 2);
-  /* Read as many blocks back as the drive will give us (capping at 64 for sanity)*/
-  bytesread = ata_transfer_block(NULL, 64);
-  spinwait_drive_busy();
-  bug_on_ata_error();
+static int strncmp_be16(char* str1, size_t str1_start, uint16* str2, size_t str2_start, size_t length) {
+  int result = 0;
 
-  uint32 sector_size = bytesread / 2;
+  while(length--) {
+    char lc = str1[str1_start];
+    char rc = (str2_start & 1)
+        ? str2[str2_start / 2] & 0xFF /* Right character of uint16 */
+        : str2[str2_start / 2] >> 8   /* Left character of uint16 */
+        ;
+    
+    result = lc - rc;
+    if(result != 0 || lc == '\0' || rc == '\0') break;
 
-  mlc_printf("Logical sector size: %lu\n", sector_size);
-
-  if(sector_size != BLOCK_SIZE) {
-    mlc_printf("Unexpected logical sector size: %lu\n", sector_size);
-    mlc_show_fatal_error ();
+    ++str1_start;
+    ++str2_start;
   }
 
-  /* 
-   * Read an odd sector. This is expected to fail on the 80GB iPod 5.5G HDD.
-   * Note: This will also fail if you attempt to read 1 sector on an even boundary,
-   * so reading (0, 1) would also work for this test.
-   */
-  ata_send_read_command(1, 1);
-  bytesread = ata_transfer_block(NULL, 2);
-  spinwait_drive_busy();
-  uint8 status = pio_inbyte( REG_STATUS );
-  if(status & STATUS_ERR) {
-    mlc_printf("iPod 80GB detected.\n");
-#ifdef DEBUG
-    uint8 error = pio_inbyte( REG_ERROR );
-    mlc_printf("STATUS: %02hhX\n", status);
-    mlc_printf("ERROR: %02hhX\n", error);
-#endif
-    blks_per_phys_sector = 2;
-  }
-  else {
-    blks_per_phys_sector = 1;
-  }
-  
-  mlc_printf("Physical sector size: %u\n", blks_per_phys_sector * BLOCK_SIZE);
+  return result;
 }
 
 /*
  * Does some extended identification of the ATA device
  */
 void ata_identify(void) {
-  uint16 *buff = (uint16*)mlc_malloc(512); // TODO: Remove unnecessary allocation
+  uint16 *buff = (uint16*)mlc_malloc(sizeof(uint16) * 256); // TODO: Remove unnecessary allocation
 
   pio_outbyte( REG_DEVICEHEAD, 0xA0 | DEVICE_0 );
   pio_outbyte( REG_FEATURES  , 0 );
@@ -367,27 +357,95 @@ void ata_identify(void) {
 
   ata_receive_read_data(buff, 1);
 
+  /*
+  * Verify the IDENTIFY DEVICE response integrity
+  *
+  * The use of this word is optional. If bits 7:0 of this word contain the signature A5h, bits 15:8 contain the data
+  * structure checksum. The data structure checksum is the two’s complement of the sum of all bytes in words 0
+  * through 254 and the byte consisting of bits 7:0 in word 255. Each byte shall be added with unsigned arithmetic,
+  * and overflow shall be ignored.
+  * The sum of all 512 bytes is zero when the checksum is correct.
+  */
+
+  if((buff[255] & 0x00FF) == 0xA5) {
+    uint8 calculated_sum = 0;
+    for(int i = 0; i < 256; i++) {
+      calculated_sum += buff[i] & 0x00FF;
+      calculated_sum += buff[i] >> 8;
+    }
+
+    if(calculated_sum != 0) {
+      /* Checksum error */
+      mlc_printf("HDD identify FAIL (checksum mismatch)\n");
+      mlc_printf("Integrity word: %04hhX\n", buff[255]);
+      mlc_printf("Sum: %d\n", calculated_sum);
+      mlc_show_fatal_error();
+      return;
+    }
+    else {
+      mlc_printf("HDD identify OK (checksum pass)\n");
+    }
+  }
+  else {
+    mlc_printf("HDD identify OK (no checksum)\n");
+  }
+
+  /* Major version number */
+  if(buff[80] == 0x0000 || buff[80] == 0xFFFF) {
+    /* device does not report version */
+  }
+  else {
+    for(int i = 14; i >= 2; i--) {
+      if(buff[80] & (1 << i)) {
+        if(i > 3) {
+          mlc_printf("ATA/ATAPI-%d\n", i);
+        }
+        else {
+          mlc_printf("ATA-%d\n", i);
+        }
+        break;
+      }
+    }
+  }
+
+  /*
+   * This field contains the model number of the device. The contents of this field is an ASCII character string of forty
+   * bytes. The device shall pad the character string with spaces (20h), if necessary, to ensure that the string is the
+   * proper length. The combination of Serial number (words 10-19) and Model number (words 27-46) shall be unique
+   * for a given manufacturer.
+   */
+  uint16 *hdd_model = &buff[27];
   mlc_printf("HDD Model: ");
-  /* Model Number*/
-  for(int i=27; i < 47; i++) {
-    if( buff[i] != ((' ' << 8) + ' ') ) {
-      mlc_printf("%c%c", buff[i]>>8, buff[i]&0xFF);
-    }
-  }
+  print_str_be16(hdd_model, 20);
   mlc_printf("\n");
 
+  /*
+   * This field contains the serial number of the device. The contents of this field is an ASCII character string of
+   * twenty bytes. The device shall pad the character string with spaces (20h), if necessary, to ensure that the
+   * string is the proper length. The combination of Serial number (words 10-19) and Model number (words 27-46)
+   * shall be unique for a given manufacturer.
+   */
+  uint16 *hdd_serial = &buff[10];
   mlc_printf("HDD Serial: ");
-  /* Serial Number*/
-  for(int i=10; i < 20; i++) {
-    if( buff[i] != ((' ' << 8) + ' ') ) {
-      mlc_printf("%c%c", buff[i]>>8, buff[i]&0xFF);
-    }
-  }
+  print_str_be16(hdd_serial, 10);
   mlc_printf("\n");
 
-  ATAdev.chs[0]  = buff[1];
-  ATAdev.chs[1]  = buff[3];
-  ATAdev.chs[2]  = buff[6];
+  /*
+   * This field contains the firmware revision number of the device. The contents of this field is an ASCII character
+   * string of eight bytes. The device shall pad the character string with spaces (20h), if necessary, to ensure that
+   * the string is the proper length.
+   */
+  uint16 *hdd_fw_rev = &buff[23];
+  mlc_printf("HDD FW Rev: ");
+  print_str_be16(hdd_fw_rev, 4);
+  mlc_printf("\n");
+
+  /* Get CHS geometry info */
+  ATAdev.chs[0] = buff[1];
+  ATAdev.chs[1] = buff[3];
+  ATAdev.chs[2] = buff[6];
+
+  mlc_printf("CHS: %u/%u/%u\n", ATAdev.chs[0], ATAdev.chs[1], ATAdev.chs[2]);
 
   /*
    * Word 83 is the command set supported flags.
@@ -397,70 +455,85 @@ void ata_identify(void) {
    * The contents of words (61:60) and (103:100) shall not be used to determine if 48-bit addressing is
    * supported. IDENTIFY DEVICE bit 10 word 83 indicates support for 48-bit addressing. 
    * */
-  drive_lba48 = (buff[83] & (1 << 10)) > 0;
+  ATAdev.lba48 = (buff[83] & (1 << 10)) ? 1 : 0;
 
-  if(drive_lba48) {
-    mlc_printf("LBA48\n");
+  if(ATAdev.lba48) {
+    mlc_printf("LBA48, ");
    /*
-    * Words (103-100) shall contain the value one greater than the total number of user-addressable
-    * sectors in 48-bit addressing and shall not exceed FFFFFFFFFFFFFFFFh.
+    * Words 100-103 contain a value that is one greater than the maximum LBA address in used addressable space
+    * when the 48-bit Addressing feature set is supported. The maximum value that shall be placed in this field is
+    * 0000FFFFFFFFFFFFh. Support of these words is mandatory if the 48-bit Address feature set is supported.
     */
     ATAdev.sectors = (
           ((uint64)buff[103] << 48)
         | ((uint64)buff[102] << 32)
         | ((uint64)buff[101] << 16)
         | ((uint64)buff[100] << 0)
-        ) - 1;
-
-    uint64 size_mb = ATAdev.sectors/BLOCKS_PER_MB;
-    mlc_printf("Size: %lu.%luGB\n", (uint32)(size_mb / 1024), (uint32)((size_mb % 1024) / 10));
+        );
   }
   else {
-    mlc_printf("LBA28\n");
+    mlc_printf("LBA28, ");
 
    /*
-    * Words (61:60) shall contain the value one greater than the total number of user-addressable
-    * sectors in 28-bit addressing and shall not exceed 0FFFFFFFh. The content of words (61:60) shall
+    * Words (61:60) shall contain the value one greater than the largest user-addressable
+    * sector in 28-bit addressing and shall not exceed 0FFFFFFFh. The content of words (61:60) shall
     * be greater than or equal to one and less than or equal to 268,435,455.
     */
     ATAdev.sectors = (
         ((uint64)buff[61] << 16)
       | ((uint64)buff[60] << 0)
-      ) - 1;
-
-    uint64 size_mb = ATAdev.sectors/BLOCKS_PER_MB;
-    mlc_printf("Size: %lu.%luGB (%u/%u/%u)\n",
-      (uint32)(size_mb / 1024), (uint32)((size_mb % 1024) / 10),
-      ATAdev.chs[0], ATAdev.chs[1], ATAdev.chs[2]);
+      );
   }
 
- /*
-  * To get the full details of the device, including the physical sector size
-  * and other capabilities, we need to use the General Purpose Logging (GPL) feature set.
-  *
-  * Reference: http://www.t13.org/Documents/UploadedDocuments/docs2016/di529r14-ATAATAPI_Command_Set_-_4.pdf
-  *
-  * To read a log, use 7.22 READ LOG EXT - 2Fh, PIO Data-In
-  * This takes a LOG ADDRESS, PAGE NUMBER, and PAGE COUNT.
-  *
-  * 1. Read Page 00h of the 9.11 IDENTIFY DEVICE data log (Log Address 30h)
-  *
-  * 2. Check page 00h 9.11.2 List of Supported IDENTIFY DEVICE data log pages (Page 00h)
-  *    to see if Page 02h,  9.11.4 Capacity (page 02) is supported.
-  *
-  * 3. If supported, read 9.11.4 Capacity (page 02) page
-  *
-  * 4. Extract: LOGICAL SECTOR SIZE SUPPORTED bit, and if set,
-  *             LOGICAL SECTOR SIZE
-  * TODO: See if there are any other values that tell us alignment or physical sector size information
-  */
+  uint64 size_mb = ATAdev.sectors/BLOCKS_PER_MB;
+  mlc_printf("Size: %lu.%luGB\n", (uint32)(size_mb / 1024), (uint32)((size_mb % 1024) / 10));
 
   /*
-   * Find drive parameters (physical and logical sector sizes).
-   * TODO( ryan.crosby@live.com ): Replace this entirely with the ATA log code as described above.
-   * We should be able to find both physical sector size and logical sector size without kludges.
-   */
-  ata_find_transfermode();
+   * HDD quirks:
+   *
+   * The iPod 5.5G 80GB uses the "TOSHIBA MK8010GAH" ZIF hard drive.
+   * MK = Prefix
+   * 80 = 80GB
+   * 10 = DSMR (Dual Stripe MR Head)
+   * G = >10GB capacity
+   * A = PATA
+   * H = 1.8", 8mm thick, 4200RPM.
+   * 
+   * The Toshiba 10GAH and 31GAL drive families have a quirk where they only support reading whole physical sectors.
+   * The logical sector (block) size is still 512 bytes, however reads will only succeed if:
+   * - The start LBA is aligned to the physical sector boundary; and
+   * - The number of blocks read is an exact multiple of the physical sector size.
+   * 
+   * The 10GAH family has 1024 byte (2 block) physical sectors. The 31GAL family has 4096 byte (8 block) physical sectors.
+   * 
+   * This means that for the iPod 5.5G MK8010GAH, we can only read even numbered LBAs, and the count must be a multiple of 2.
+   * To read an odd LBA, read the even numbered LBA below it, and read 2 blocks to cover the LBA actually requested.
+  */
+
+  /* "TOSHIBA ????10GAH" */
+  if(strncmp_be16("TOSHIBA ", 0, hdd_model, 0, sizeof("TOSHIBA ") - 1) == 0
+    && strncmp_be16("10GAH", 0, hdd_model, 12, sizeof("10GAH") - 1) == 0)
+  {
+    mlc_printf("Enabling TOSHIBA 10GAH quirks\n");
+    /* 1024 byte physical sectors, 2 blocks per physical sector */
+    ATAdev.alignment_log2 = 1;
+  }
+  else {
+    if(size_mb > (127 * 1024)) {
+      /* HDD is larger than 127GB, it's probably a 4K sector HDD, or a flash modded iPod */
+      /* Do 4K, 8 block sector reads */
+      mlc_printf("Large drive, enabling 4K reads\n");
+      ATAdev.alignment_log2 = 3;
+    }
+    else {
+      /* 512 byte physical sectors, 1 blocks per physical sector */
+      ATAdev.alignment_log2 = 0;
+    }
+  }
+
+  #if DEBUG
+    mlc_show_critical_error();
+  #endif
 }
 
 /*
@@ -486,13 +559,13 @@ static void ata_send_read_command(uint32 lba, uint16 count) {
   * Head = 0 for LBA 48
   * Head = lower nibble of top byte of sector, for LBA28
   */
-  uint8 head = drive_lba48 ? 0 : ((lba & 0x0F000000) >> 24);
+  uint8 head = ATAdev.lba48 ? 0 : ((lba & 0x0F000000) >> 24);
   pio_outbyte( REG_DEVICEHEAD  , 0xA0 | LBA_ADDRESSING | DEVICE_0 | head );
   DELAY400NS;
   pio_outbyte( REG_FEATURES    , 0 );
   pio_outbyte( REG_CONTROL     , CONTROL_NIEN | 0x08); /* 8 = HD15 */
 
-  if(drive_lba48) {
+  if(ATAdev.lba48) {
     /*
     * IMPORTANT: The ATA controller is sensitive to the order in which registers are written.
     *            For LBA48, we MUST write the high registers first, before we write the low registers.
@@ -513,7 +586,7 @@ static void ata_send_read_command(uint32 lba, uint16 count) {
   pio_outbyte( REG_LBA2         , (lba   & 0x00FF0000) >> 16 );
 
   /* Send read command */
-  if (drive_lba48) {
+  if (ATAdev.lba48) {
     ata_command( COMMAND_READ_SECTORS_EXT );
   }
   else {
@@ -685,28 +758,20 @@ static int ata_readblock2(void *dst, uint32 sector, int useCache) {
     }
   }
 
-  if(!drive_lba48 && (sector > 0x0FFFFFFF)) {
+  if(!ATAdev.lba48 && (sector > 0x0FFFFFFF)) {
     /* The sector is too large for the current addressing scheme */
     mlc_printf(
       "Out of bounds read!\n"
-      "Sector %u is too large for LBA28 addressing.\n"
+      "Sector %lu is too large for LBA28 addressing.\n"
       , sector);
     mlc_show_fatal_error ();
     return(0);
   }
 
   /* Calculate an aligned LBA for the specified sector */
-  uint32 read_size;
-  uint32 sector_to_read;
-  if(useCache && (blks_per_phys_sector < 4)) {
-      /* Optimization: If we're caching, bump read size up to 2K for speedups */
-      read_size = 4;
-      sector_to_read = sector & ~0x03;
-  }
-  else {
-    read_size = blks_per_phys_sector;
-    sector_to_read = sector - (sector % read_size);
-  }
+  uint16 read_size = (1u << ATAdev.alignment_log2);
+  uint32 sector_mask = ~((1u << (ATAdev.alignment_log2)) - 1u);
+  uint32 sector_to_read = sector & sector_mask;
 
   /* Send the read command to the device*/
   ata_send_read_command(sector_to_read, read_size);
@@ -716,7 +781,7 @@ static int ata_readblock2(void *dst, uint32 sector, int useCache) {
       * In cached mode, store every 512 byte block we read into the cache,
       * and then copy the requested sector out to dst
     */
-    for(int i = sector_to_read; i < (sector_to_read + read_size); i++) {
+    for(uint32 i = sector_to_read; i < (sector_to_read + read_size); i++) {
       int cacheindex = create_cache_entry(i);
       void *cachedst = get_cache_entry_buffer(cacheindex);
 
@@ -735,7 +800,7 @@ static int ata_readblock2(void *dst, uint32 sector, int useCache) {
       * In non-cached mode, discard the sectors we read unless
       * they were the requested sector.
     */
-    for(int i = sector_to_read; i < (sector_to_read + read_size); i++) {
+    for(uint32 i = sector_to_read; i < (sector_to_read + read_size); i++) {
       if(i == sector) {
         /* This is the sector that was actually requested, read data directly into the destination */
         ata_receive_read_data(dst, 1);
@@ -772,8 +837,4 @@ int ata_readblocks_uncached (void *dst, uint32 sector, uint32 count) {
     dst = (char*)dst + 512;
   }
   return 0;
-}
-
-uint8 ata_get_blks_per_phys_sector(void) {
-  return blks_per_phys_sector;
 }
